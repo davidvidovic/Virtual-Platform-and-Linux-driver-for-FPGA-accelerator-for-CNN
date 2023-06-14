@@ -398,6 +398,16 @@ void Hardware::conv0()
 	vector<hwdata_t> line_buffer1;
 	vector<hwdata_t> line_buffer2;
 
+	vector<hwdata_t> weights_buffer0;
+	vector<hwdata_t> weights_buffer1;
+	vector<hwdata_t> weights_buffer2;
+	vector<hwdata_t> weights_buffer3;
+	vector<hwdata_t> weights_buffer4;
+	vector<hwdata_t> weights_buffer5;
+	vector<hwdata_t> weights_buffer6;
+	vector<hwdata_t> weights_buffer7;
+	vector<hwdata_t> weights_buffer8;
+
 	vector<hwdata_t> MAC;
 	hwdata_t conv_sum;
 
@@ -432,39 +442,72 @@ void Hardware::conv0()
 
 		// ----
 
-		int pos_weights = 0;
-		int pixels_read = 0;
-		int counter_conv = 0;
 		int counter_columns = 0;
 		int counter_rows = 0;
 		int counter_channel = 0;
 		int flag_end_of_row = 0;
-		int used_pixels = 0;
+
+		int address_read0 = 0;
+		int address_read1 = 0;
+		int address_read2 = 0;
+		int address_weights_read0 = 0;
+		int address_weights_read1 = 0;
+		int address_weights_read2 = 0;
 
 		output_image.clear();
 		
 		for (int filter = 0; filter < num_of_filters; ++filter)
 		{		
-
+			cout << "Convoluting filter " << filter << endl;
 			counter_rows = 0;
 			counter_columns = 0;
 			counter_channel = 0;
 			flag_end_of_row = 0;
 
-			// Resetting pixels that have been read from BRAM input image
-			// For each new filter, so the counter always starts at 0
-			pixels_read = 0;
+			// Weights buffers must be cleared for each new filter
+			weights_buffer0.clear();
+			weights_buffer1.clear();
+			weights_buffer2.clear();
+			weights_buffer3.clear();
+			weights_buffer4.clear();
+			weights_buffer5.clear();
+			weights_buffer6.clear();
+			weights_buffer7.clear();
+			weights_buffer8.clear();
 
-			// Determing the start address for weights for each filter
-			// Weights are formated in 3x3 slices, x3 for each channel, and every filter has it own
-			// Set of 3x3x3 weights, hence x'filter'.
-			pos_weights = filter * 3*3*3;
+			for(int i = 0; i < 3; i++)
+			{
+				for(int j = 0; j < 3; j++)
+				{
+					// Buffering weights data
+					address_weights_read0 = filter*3*3*3 + i*3 + j*3*3;
+					address_weights_read1 = filter*3*3*3 + i*3 + j*3*3  + 1;
+					address_weights_read2 = filter*3*3*3 + i*3 + j*3*3  + 2;
+
+					if(i == 0)
+					{
+						weights_buffer0.emplace(weights_buffer0.begin(), weigts[address_weights_read0]);
+						weights_buffer1.emplace(weights_buffer1.begin(), weigts[address_weights_read1]);
+						weights_buffer2.emplace(weights_buffer2.begin(), weigts[address_weights_read2]);
+					}
+					if(i == 1)
+					{
+						weights_buffer3.emplace(weights_buffer3.begin(), weigts[address_weights_read0]);
+						weights_buffer4.emplace(weights_buffer4.begin(), weigts[address_weights_read1]);
+						weights_buffer5.emplace(weights_buffer5.begin(), weigts[address_weights_read2]);
+					}
+					if(i == 2)
+					{
+						weights_buffer6.emplace(weights_buffer6.begin(), weigts[address_weights_read0]);
+						weights_buffer7.emplace(weights_buffer7.begin(), weigts[address_weights_read1]);
+						weights_buffer8.emplace(weights_buffer8.begin(), weigts[address_weights_read2]);
+					}
+				}
+			}
 
 			while(counter_rows < img_size - 2)
 			{
 				// 9 CLK periods wasted while the buffer fills up with data
-				// First reading: 0 34 68
-				// Then reading: 1156 1190 1224	and so on
 
 				// If a new row of convolution is starting
 				if(counter_columns == 0 && counter_channel == 0)
@@ -474,67 +517,20 @@ void Hardware::conv0()
 					line_buffer1.clear();
 					line_buffer2.clear();
 					
-					if(counter_rows == 0)
+					for(int i = 0; i < 3; i++)
 					{
-						for(int i = 0; i < 9; i++)
+						for(int j = 0; j < 3; j++)
 						{
-							line_buffer0.emplace(line_buffer0.begin(), input_image[pixels_read++]);
-							line_buffer1.emplace(line_buffer1.begin(), input_image[pixels_read++]);
-							line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-			
-							// TIME 1 CLK PERIOD
-							#ifdef QUANTUM
-							qk.inc(sc_time(CLK_PERIOD, SC_NS));
-							offset = qk.get_local_time();
-							qk.set_and_sync(offset);
-							#endif
-						}	
-					}
-					else if(counter_rows == 1)
-					{
-						used_pixels = 0;
-						for(int i = 0; i < 9; i++)
-						{
-							line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-							used_pixels++;
-							line_buffer0.emplace(line_buffer0.begin(), input_image[used_pixels++]);
-							line_buffer1.emplace(line_buffer1.begin(), input_image[used_pixels++]);
+							// Buffering image data
 
-							// TIME 1 CLK PERIOD
-							#ifdef QUANTUM
-							qk.inc(sc_time(CLK_PERIOD, SC_NS));
-							offset = qk.get_local_time();
-							qk.set_and_sync(offset);
-							#endif
-						}	
-					}
-					else if(counter_rows == 2)
-					{
-						used_pixels = 2;
-						for(int i = 0; i < 9; i++)
-						{
-							line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-							
-							line_buffer0.emplace(line_buffer0.begin(), input_image[used_pixels++]);
-							used_pixels += 2;
-							line_buffer1.emplace(line_buffer1.begin(), input_image[pixels_read - 103]);
+							address_read0 = counter_rows*34 + i + j * 34*34;
+							// Cannot be done address_read1 = address_read0 + 34 since it takes 2 CLK periods for that 
+							address_read1 = counter_rows*34 + i + j * 34*34 + 34;
+							address_read2 = counter_rows*34 + i + j * 34*34 + 68;
 
-							// TIME 1 CLK PERIOD
-							#ifdef QUANTUM
-							qk.inc(sc_time(CLK_PERIOD, SC_NS));
-							offset = qk.get_local_time();
-							qk.set_and_sync(offset);
-							#endif
-						}	
-					}
-					else
-					{
-						for(int i = 0; i < 9; i++)
-						{
-							line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-							
-							line_buffer0.emplace(line_buffer0.begin(), input_image[pixels_read - 205]);
-							line_buffer1.emplace(line_buffer1.begin(), input_image[pixels_read - 103]);
+							line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+							line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+							line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
 
 							// TIME 1 CLK PERIOD
 							#ifdef QUANTUM
@@ -543,7 +539,7 @@ void Hardware::conv0()
 							qk.set_and_sync(offset);
 							#endif
 						}
-					}
+					}	
 				}	
 
 				// If an output pixel has been created, or at start of convolution, 
@@ -561,55 +557,44 @@ void Hardware::conv0()
 
 				// 9 multiplications in parallel
 
-				MAC[0] += line_buffer0[8] * weigts[pos_weights++];
-				MAC[1] += line_buffer0[5] * weigts[pos_weights++];
-				MAC[2] += line_buffer0[2] * weigts[pos_weights++];
+				MAC[0] += line_buffer0[8] * weights_buffer0[2];
+				MAC[1] += line_buffer0[5] * weights_buffer1[2];
+				MAC[2] += line_buffer0[2] * weights_buffer2[2];
 
-				MAC[3] += line_buffer1[8] * weigts[pos_weights++];
-				MAC[4] += line_buffer1[5] * weigts[pos_weights++];
-				MAC[5] += line_buffer1[2] * weigts[pos_weights++];
+				MAC[3] += line_buffer1[8] * weights_buffer3[2];
+				MAC[4] += line_buffer1[5] * weights_buffer4[2];
+				MAC[5] += line_buffer1[2] * weights_buffer5[2];
 
-				MAC[6] += line_buffer2[8] * weigts[pos_weights++];
-				MAC[7] += line_buffer2[5] * weigts[pos_weights++];
-				MAC[8] += line_buffer2[2] * weigts[pos_weights++];
+				MAC[6] += line_buffer2[8] * weights_buffer6[2];
+				MAC[7] += line_buffer2[5] * weights_buffer7[2];
+				MAC[8] += line_buffer2[2] * weights_buffer8[2];
 
 				if(flag_end_of_row)
 				{
 					line_buffer0.emplace(line_buffer0.begin(), 0);
 					line_buffer1.emplace(line_buffer1.begin(), 0);
-					line_buffer2.emplace(line_buffer2.begin(), 0);			
+					line_buffer2.emplace(line_buffer2.begin(), 0);		
 				}
-				// When convoluting pixels starting in the first row of each channel, it is neccessary to
-				// Fill line buffers with 3 new pixels since those pixels have not been read yet
-				else if(counter_rows == 0)
+				else 
 				{
-					line_buffer0.emplace(line_buffer0.begin(), input_image[pixels_read++]);
-					line_buffer1.emplace(line_buffer1.begin(), input_image[pixels_read++]);
-					line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
+					address_read0 = (counter_columns+3) + counter_rows*34 + counter_channel*34*34;
+					address_read1 = (counter_columns+3) + counter_rows*34 + counter_channel*34*34 + 34;
+					address_read2 = (counter_columns+3) + counter_rows*34 + counter_channel*34*34 + 68;
+
+					line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+					line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+					line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);	
 				}
-				// 
-				else if(counter_rows == 1)
-				{
-					line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-					used_pixels++;
-					line_buffer0.emplace(line_buffer0.begin(), input_image[used_pixels++]);
-					line_buffer1.emplace(line_buffer1.begin(), input_image[used_pixels++]);
-				}
-				else if(counter_rows == 2)
-				{
-					line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-							
-					line_buffer0.emplace(line_buffer0.begin(), input_image[used_pixels++]);
-					used_pixels += 2;
-					line_buffer1.emplace(line_buffer1.begin(), input_image[pixels_read - 103]);
-				}
-				else
-				{
-					line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-							
-					line_buffer0.emplace(line_buffer0.begin(), input_image[pixels_read - 205]);
-					line_buffer1.emplace(line_buffer1.begin(), input_image[pixels_read - 103]);
-				}
+
+				weights_buffer0.emplace(weights_buffer0.begin(), weights_buffer0[2]);
+				weights_buffer1.emplace(weights_buffer1.begin(), weights_buffer1[2]);
+				weights_buffer2.emplace(weights_buffer2.begin(), weights_buffer2[2]);
+				weights_buffer3.emplace(weights_buffer3.begin(), weights_buffer3[2]);
+				weights_buffer4.emplace(weights_buffer4.begin(), weights_buffer4[2]);
+				weights_buffer5.emplace(weights_buffer5.begin(), weights_buffer5[2]);
+				weights_buffer6.emplace(weights_buffer6.begin(), weights_buffer6[2]);
+				weights_buffer7.emplace(weights_buffer7.begin(), weights_buffer7[2]);
+				weights_buffer8.emplace(weights_buffer8.begin(), weights_buffer8[2]);
 
 				// CONTROL PART:
 
@@ -630,9 +615,6 @@ void Hardware::conv0()
 					// Counting channels done, when =3 one output pixels has been created
 					counter_channel = 0;
 
-					// Resetting weights reading position back to channel 0 for this filter
-					pos_weights = filter * 3*3*3;
-
 					if(flag_end_of_row) 
 					{
 						counter_rows++;
@@ -645,11 +627,6 @@ void Hardware::conv0()
 						counter_columns++;
 					}
 
-					// Resetting counter for weights index, each time one full-depth image slice is convoluted
-					// And an output pixel is created, algorithm takes new image 3x3 slice from the first channel
-					// So it needs to read the same 3x3 weights slice again
-					// pos_weights = 0;
-
 					// If all slices (32 of them) are done for each input channel
 					// A row has finished and it's time to switch to other buffer
 					if(counter_columns == img_size - 3)
@@ -661,7 +638,6 @@ void Hardware::conv0()
 						// When a row has finished(all 3x3x34x3 pixels been read from BRAM), algorithm needs
 						// 3 CLK periods to finish convoluting data that is already in line buffers, before
 						// It can continue onto the new row (final 3 image 3x3 slices)
-						
 					}
 				}
 
@@ -689,6 +665,16 @@ void Hardware::conv1()
 	vector<hwdata_t> line_buffer0;
 	vector<hwdata_t> line_buffer1;
 	vector<hwdata_t> line_buffer2;
+
+	vector<hwdata_t> weights_buffer0;
+	vector<hwdata_t> weights_buffer1;
+	vector<hwdata_t> weights_buffer2;
+	vector<hwdata_t> weights_buffer3;
+	vector<hwdata_t> weights_buffer4;
+	vector<hwdata_t> weights_buffer5;
+	vector<hwdata_t> weights_buffer6;
+	vector<hwdata_t> weights_buffer7;
+	vector<hwdata_t> weights_buffer8;
 
 	vector<hwdata_t> MAC;
 	hwdata_t conv_sum;
@@ -723,28 +709,68 @@ void Hardware::conv1()
 
 		// ----
 
-		int pos_weights = 0;
-		int pixels_read = 0;
-		int counter_conv = 0;
 		int counter_columns = 0;
 		int counter_rows = 0;
 		int counter_channel = 0;
 		int flag_end_of_row = 0;
-		int used_pixels = 0;
+
+		int address_read0 = 0;
+		int address_read1 = 0;
+		int address_read2 = 0;
+		int address_weights_read0 = 0;
+		int address_weights_read1 = 0;
+		int address_weights_read2 = 0;
+
 		
 		for (int filter = 0; filter < num_of_filters; ++filter)
 		{		
 
+			cout << "Convoluting filter " << conv1_counter*16 + filter << endl;
 			counter_rows = 0;
 			counter_columns = 0;
 			counter_channel = 0;
 			flag_end_of_row = 0;
 
-			// Resetting pixels that have been read from BRAM input image
-			// For each new filter, so the counter always starts at 0
-			pixels_read = 0;
+			// Weights buffers must be cleared for each new filter
+			weights_buffer0.clear();
+			weights_buffer1.clear();
+			weights_buffer2.clear();
+			weights_buffer3.clear();
+			weights_buffer4.clear();
+			weights_buffer5.clear();
+			weights_buffer6.clear();
+			weights_buffer7.clear();
+			weights_buffer8.clear();
 
-			pos_weights = filter*3*3*32;
+			for(int i = 0; i < 3; i++)
+			{
+				for(int j = 0; j < 32; j++)
+				{
+					// Buffering weights data
+					address_weights_read0 = filter*3*3*32 + i*3 + j*3*3;
+					address_weights_read1 = filter*3*3*32 + i*3 + j*3*3 + 1;
+					address_weights_read2 = filter*3*3*32 + i*3 + j*3*3 + 2;
+
+					if(i == 0)
+					{
+						weights_buffer0.emplace(weights_buffer0.begin(), weigts[address_weights_read0]);
+						weights_buffer1.emplace(weights_buffer1.begin(), weigts[address_weights_read1]);
+						weights_buffer2.emplace(weights_buffer2.begin(), weigts[address_weights_read2]);
+					}
+					if(i == 1)
+					{
+						weights_buffer3.emplace(weights_buffer3.begin(), weigts[address_weights_read0]);
+						weights_buffer4.emplace(weights_buffer4.begin(), weigts[address_weights_read1]);
+						weights_buffer5.emplace(weights_buffer5.begin(), weigts[address_weights_read2]);
+					}
+					if(i == 2)
+					{
+						weights_buffer6.emplace(weights_buffer6.begin(), weigts[address_weights_read0]);
+						weights_buffer7.emplace(weights_buffer7.begin(), weigts[address_weights_read1]);
+						weights_buffer8.emplace(weights_buffer8.begin(), weigts[address_weights_read2]);
+					}
+				}
+			}
 
 			while(counter_rows < img_size - 2)
 			{
@@ -756,67 +782,20 @@ void Hardware::conv1()
 					line_buffer1.clear();
 					line_buffer2.clear();
 					
-					if(counter_rows == 0)
+					for(int i = 0; i < 3; i++)
 					{
-						for(int i = 0; i < 32*3; i++)
+						for(int j = 0; j < 32; j++)
 						{
-							line_buffer0.emplace(line_buffer0.begin(), input_image[pixels_read++]);
-							line_buffer1.emplace(line_buffer1.begin(), input_image[pixels_read++]);
-							line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-			
-							// TIME 1 CLK PERIOD
-							#ifdef QUANTUM
-							qk.inc(sc_time(CLK_PERIOD, SC_NS));
-							offset = qk.get_local_time();
-							qk.set_and_sync(offset);
-							#endif
-						}	
-					}
-					else if(counter_rows == 1)
-					{
-						used_pixels = 0;
-						for(int i = 0; i < 32*3; i++)
-						{
-							line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-							used_pixels++;
-							line_buffer0.emplace(line_buffer0.begin(), input_image[used_pixels++]);
-							line_buffer1.emplace(line_buffer1.begin(), input_image[used_pixels++]);
+							// Buffering image data
 
-							// TIME 1 CLK PERIOD
-							#ifdef QUANTUM
-							qk.inc(sc_time(CLK_PERIOD, SC_NS));
-							offset = qk.get_local_time();
-							qk.set_and_sync(offset);
-							#endif
-						}	
-					}
-					else if(counter_rows == 2)
-					{
-						used_pixels = 2;
-						for(int i = 0; i < 32*3; i++)
-						{
-							line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-							
-							line_buffer0.emplace(line_buffer0.begin(), input_image[used_pixels++]);
-							used_pixels += 2;
-							line_buffer1.emplace(line_buffer1.begin(), input_image[pixels_read - num_of_channels*img_size-1]);
+							address_read0 = counter_rows*18 + i + j * 18*18;
+							// Cannot be done address_read1 = address_read0 + 18 since it takes 2 CLK periods for that 
+							address_read1 = counter_rows*18 + i + j * 18*18 + 18;
+							address_read2 = counter_rows*18 + i + j * 18*18 + 36;
 
-							// TIME 1 CLK PERIOD
-							#ifdef QUANTUM
-							qk.inc(sc_time(CLK_PERIOD, SC_NS));
-							offset = qk.get_local_time();
-							qk.set_and_sync(offset);
-							#endif
-						}	
-					}
-					else
-					{
-						for(int i = 0; i < 32*3; i++)
-						{
-							line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-							
-							line_buffer0.emplace(line_buffer0.begin(), input_image[pixels_read - 2*num_of_channels*img_size-1]);
-							line_buffer1.emplace(line_buffer1.begin(), input_image[pixels_read - num_of_channels*img_size-1]);
+							line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+							line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+							line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
 
 							// TIME 1 CLK PERIOD
 							#ifdef QUANTUM
@@ -825,7 +804,7 @@ void Hardware::conv1()
 							qk.set_and_sync(offset);
 							#endif
 						}
-					}
+					}	
 				}	
 
 				// If an output pixel has been created, or at start of convolution, 
@@ -841,55 +820,44 @@ void Hardware::conv1()
 
 				// 9 multiplications in parallel
 
-				MAC[0] += line_buffer0[95] * weigts[pos_weights++];
-				MAC[1] += line_buffer0[63] * weigts[pos_weights++];
-				MAC[2] += line_buffer0[31] * weigts[pos_weights++];
+				MAC[0] += line_buffer0[95] * weights_buffer0[31];
+				MAC[1] += line_buffer0[63] * weights_buffer1[31];
+				MAC[2] += line_buffer0[31] * weights_buffer2[31];
 
-				MAC[3] += line_buffer1[95] * weigts[pos_weights++];
-				MAC[4] += line_buffer1[63] * weigts[pos_weights++];
-				MAC[5] += line_buffer1[31] * weigts[pos_weights++];
+				MAC[3] += line_buffer1[95] * weights_buffer3[31];
+				MAC[4] += line_buffer1[63] * weights_buffer4[31];
+				MAC[5] += line_buffer1[31] * weights_buffer5[31];
 
-				MAC[6] += line_buffer2[95] * weigts[pos_weights++];
-				MAC[7] += line_buffer2[63] * weigts[pos_weights++];
-				MAC[8] += line_buffer2[31] * weigts[pos_weights++];
+				MAC[6] += line_buffer2[95] * weights_buffer6[31];
+				MAC[7] += line_buffer2[63] * weights_buffer7[31];
+				MAC[8] += line_buffer2[31] * weights_buffer8[31];
 
 				if(flag_end_of_row)
 				{
 					line_buffer0.emplace(line_buffer0.begin(), 0);
 					line_buffer1.emplace(line_buffer1.begin(), 0);
-					line_buffer2.emplace(line_buffer2.begin(), 0);			
+					line_buffer2.emplace(line_buffer2.begin(), 0);		
 				}
-				// When convoluting pixels starting in the first row of each channel, it is neccessary to
-				// Fill line buffers with 3 new pixels since those pixels have not been read yet
-				else if(counter_rows == 0)
+				else 
 				{
-					line_buffer0.emplace(line_buffer0.begin(), input_image[pixels_read++]);
-					line_buffer1.emplace(line_buffer1.begin(), input_image[pixels_read++]);
-					line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
+					address_read0 = (counter_columns+3) + counter_rows*18 + counter_channel*18*18;
+					address_read1 = (counter_columns+3) + counter_rows*18 + counter_channel*18*18 + 18;
+					address_read2 = (counter_columns+3) + counter_rows*18 + counter_channel*18*18 + 36;
+
+					line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+					line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+					line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);	
 				}
-				// 
-				else if(counter_rows == 1)
-				{
-					line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-					used_pixels++;
-					line_buffer0.emplace(line_buffer0.begin(), input_image[used_pixels++]);
-					line_buffer1.emplace(line_buffer1.begin(), input_image[used_pixels++]);
-				}
-				else if(counter_rows == 2)
-				{
-					line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-							
-					line_buffer0.emplace(line_buffer0.begin(), input_image[used_pixels++]);
-					used_pixels += 2;
-					line_buffer1.emplace(line_buffer1.begin(), input_image[pixels_read - num_of_channels*img_size-1]);
-				}
-				else
-				{
-					line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-							
-					line_buffer0.emplace(line_buffer0.begin(), input_image[pixels_read - 2*32*img_size-1]);
-					line_buffer1.emplace(line_buffer1.begin(), input_image[pixels_read - 32*img_size-1]);
-				}
+
+				weights_buffer0.emplace(weights_buffer0.begin(), weights_buffer0[31]);
+				weights_buffer1.emplace(weights_buffer1.begin(), weights_buffer1[31]);
+				weights_buffer2.emplace(weights_buffer2.begin(), weights_buffer2[31]);
+				weights_buffer3.emplace(weights_buffer3.begin(), weights_buffer3[31]);
+				weights_buffer4.emplace(weights_buffer4.begin(), weights_buffer4[31]);
+				weights_buffer5.emplace(weights_buffer5.begin(), weights_buffer5[31]);
+				weights_buffer6.emplace(weights_buffer6.begin(), weights_buffer6[31]);
+				weights_buffer7.emplace(weights_buffer7.begin(), weights_buffer7[31]);
+				weights_buffer8.emplace(weights_buffer8.begin(), weights_buffer8[31]);
 
 				// CONTROL PART:
 
@@ -909,9 +877,6 @@ void Hardware::conv1()
 
 					// Counting channels done, when =3 one output pixels has been created
 					counter_channel = 0;
-
-					// Resetting weights reading position back to channel 0 for this filter
-					pos_weights = filter*3*3*32;
 
 					if(flag_end_of_row) 
 					{
@@ -965,6 +930,16 @@ void Hardware::conv2()
 	vector<hwdata_t> line_buffer1;
 	vector<hwdata_t> line_buffer2;
 
+	vector<hwdata_t> weights_buffer0;
+	vector<hwdata_t> weights_buffer1;
+	vector<hwdata_t> weights_buffer2;
+	vector<hwdata_t> weights_buffer3;
+	vector<hwdata_t> weights_buffer4;
+	vector<hwdata_t> weights_buffer5;
+	vector<hwdata_t> weights_buffer6;
+	vector<hwdata_t> weights_buffer7;
+	vector<hwdata_t> weights_buffer8;
+
 	vector<hwdata_t> MAC;
 	hwdata_t conv_sum;
 
@@ -999,28 +974,67 @@ void Hardware::conv2()
 		
 		// ----
 
-		int pos_weights = 0;
-		int pixels_read = 0;
-		int counter_conv = 0;
 		int counter_columns = 0;
 		int counter_rows = 0;
 		int counter_channel = 0;
 		int flag_end_of_row = 0;
-		int used_pixels = 0;
+
+		int address_read0 = 0;
+		int address_read1 = 0;
+		int address_read2 = 0;
+		int address_weights_read0 = 0;
+		int address_weights_read1 = 0;
+		int address_weights_read2 = 0;
 		
 		for (int filter = 0; filter < num_of_filters; ++filter)
 		{		
 
+			cout << "Convoluting filter " << conv2_counter*16 + filter << endl;
 			counter_rows = 0;
 			counter_columns = 0;
 			counter_channel = 0;
 			flag_end_of_row = 0;
 
-			// Resetting pixels that have been read from BRAM input image
-			// For each new filter, so the counter always starts at 0
-			pixels_read = 0;
+			// Weights buffers must be cleared for each new filter
+			weights_buffer0.clear();
+			weights_buffer1.clear();
+			weights_buffer2.clear();
+			weights_buffer3.clear();
+			weights_buffer4.clear();
+			weights_buffer5.clear();
+			weights_buffer6.clear();
+			weights_buffer7.clear();
+			weights_buffer8.clear();
 
-			pos_weights = filter*3*3*32;
+			for(int i = 0; i < 3; i++)
+			{
+				for(int j = 0; j < 32; j++)
+				{
+					// Buffering weights data
+					address_weights_read0 = filter*3*3*32 + i*3 + j*3*3;
+					address_weights_read1 = filter*3*3*32 + i*3 + j*3*3 + 1;
+					address_weights_read2 = filter*3*3*32 + i*3 + j*3*3 + 2;
+
+					if(i == 0)
+					{
+						weights_buffer0.emplace(weights_buffer0.begin(), weigts[address_weights_read0]);
+						weights_buffer1.emplace(weights_buffer1.begin(), weigts[address_weights_read1]);
+						weights_buffer2.emplace(weights_buffer2.begin(), weigts[address_weights_read2]);
+					}
+					if(i == 1)
+					{
+						weights_buffer3.emplace(weights_buffer3.begin(), weigts[address_weights_read0]);
+						weights_buffer4.emplace(weights_buffer4.begin(), weigts[address_weights_read1]);
+						weights_buffer5.emplace(weights_buffer5.begin(), weigts[address_weights_read2]);
+					}
+					if(i == 2)
+					{
+						weights_buffer6.emplace(weights_buffer6.begin(), weigts[address_weights_read0]);
+						weights_buffer7.emplace(weights_buffer7.begin(), weigts[address_weights_read1]);
+						weights_buffer8.emplace(weights_buffer8.begin(), weigts[address_weights_read2]);
+					}
+				}
+			}
 
 			while(counter_rows < img_size - 2)
 			{
@@ -1032,67 +1046,20 @@ void Hardware::conv2()
 					line_buffer1.clear();
 					line_buffer2.clear();
 					
-					if(counter_rows == 0)
+					for(int i = 0; i < 3; i++)
 					{
-						for(int i = 0; i < 32*3; i++)
+						for(int j = 0; j < 32; j++)
 						{
-							line_buffer0.emplace(line_buffer0.begin(), input_image[pixels_read++]);
-							line_buffer1.emplace(line_buffer1.begin(), input_image[pixels_read++]);
-							line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-			
-							// TIME 1 CLK PERIOD
-							#ifdef QUANTUM
-							qk.inc(sc_time(CLK_PERIOD, SC_NS));
-							offset = qk.get_local_time();
-							qk.set_and_sync(offset);
-							#endif
-						}	
-					}
-					else if(counter_rows == 1)
-					{
-						used_pixels = 0;
-						for(int i = 0; i < 32*3; i++)
-						{
-							line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-							used_pixels++;
-							line_buffer0.emplace(line_buffer0.begin(), input_image[used_pixels++]);
-							line_buffer1.emplace(line_buffer1.begin(), input_image[used_pixels++]);
+							// Buffering image data
 
-							// TIME 1 CLK PERIOD
-							#ifdef QUANTUM
-							qk.inc(sc_time(CLK_PERIOD, SC_NS));
-							offset = qk.get_local_time();
-							qk.set_and_sync(offset);
-							#endif
-						}	
-					}
-					else if(counter_rows == 2)
-					{
-						used_pixels = 2;
-						for(int i = 0; i < 32*3; i++)
-						{
-							line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-							
-							line_buffer0.emplace(line_buffer0.begin(), input_image[used_pixels++]);
-							used_pixels += 2;
-							line_buffer1.emplace(line_buffer1.begin(), input_image[pixels_read - num_of_channels*img_size-1]);
+							address_read0 = counter_rows*10 + i + j * 10*10;
+							// Cannot be done address_read1 = address_read0 + 18 since it takes 2 CLK periods for that 
+							address_read1 = counter_rows*10 + i + j * 10*10 + 10;
+							address_read2 = counter_rows*10 + i + j * 10*10 + 20;
 
-							// TIME 1 CLK PERIOD
-							#ifdef QUANTUM
-							qk.inc(sc_time(CLK_PERIOD, SC_NS));
-							offset = qk.get_local_time();
-							qk.set_and_sync(offset);
-							#endif
-						}	
-					}
-					else
-					{
-						for(int i = 0; i < 32*3; i++)
-						{
-							line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-							
-							line_buffer0.emplace(line_buffer0.begin(), input_image[pixels_read - 2*num_of_channels*img_size-1]);
-							line_buffer1.emplace(line_buffer1.begin(), input_image[pixels_read - num_of_channels*img_size-1]);
+							line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+							line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+							line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
 
 							// TIME 1 CLK PERIOD
 							#ifdef QUANTUM
@@ -1101,7 +1068,7 @@ void Hardware::conv2()
 							qk.set_and_sync(offset);
 							#endif
 						}
-					}
+					}	
 				}	
 
 				// If an output pixel has been created, or at start of convolution, 
@@ -1117,63 +1084,49 @@ void Hardware::conv2()
 
 				// 9 multiplications in parallel
 
-				MAC[0] += line_buffer0[95] * weigts[pos_weights++];
-				MAC[1] += line_buffer0[63] * weigts[pos_weights++];
-				MAC[2] += line_buffer0[31] * weigts[pos_weights++];
+				MAC[0] += line_buffer0[95] * weights_buffer0[31];
+				MAC[1] += line_buffer0[63] * weights_buffer1[31];
+				MAC[2] += line_buffer0[31] * weights_buffer2[31];
 
-				MAC[3] += line_buffer1[95] * weigts[pos_weights++];
-				MAC[4] += line_buffer1[63] * weigts[pos_weights++];
-				MAC[5] += line_buffer1[31] * weigts[pos_weights++];
+				MAC[3] += line_buffer1[95] * weights_buffer3[31];
+				MAC[4] += line_buffer1[63] * weights_buffer4[31];
+				MAC[5] += line_buffer1[31] * weights_buffer5[31];
 
-				MAC[6] += line_buffer2[95] * weigts[pos_weights++];
-				MAC[7] += line_buffer2[63] * weigts[pos_weights++];
-				MAC[8] += line_buffer2[31] * weigts[pos_weights++];
+				MAC[6] += line_buffer2[95] * weights_buffer6[31];
+				MAC[7] += line_buffer2[63] * weights_buffer7[31];
+				MAC[8] += line_buffer2[31] * weights_buffer8[31];
 
 				if(flag_end_of_row)
 				{
 					line_buffer0.emplace(line_buffer0.begin(), 0);
 					line_buffer1.emplace(line_buffer1.begin(), 0);
-					line_buffer2.emplace(line_buffer2.begin(), 0);			
+					line_buffer2.emplace(line_buffer2.begin(), 0);		
 				}
-				// When convoluting pixels starting in the first row of each channel, it is neccessary to
-				// Fill line buffers with 3 new pixels since those pixels have not been read yet
-				else if(counter_rows == 0)
+				else 
 				{
-					line_buffer0.emplace(line_buffer0.begin(), input_image[pixels_read++]);
-					line_buffer1.emplace(line_buffer1.begin(), input_image[pixels_read++]);
-					line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
+					address_read0 = (counter_columns+3) + counter_rows*10 + counter_channel*10*10;
+					address_read1 = (counter_columns+3) + counter_rows*10 + counter_channel*10*10 + 10;
+					address_read2 = (counter_columns+3) + counter_rows*10 + counter_channel*10*10 + 20;
+
+					line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+					line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+					line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);	
 				}
-				// 
-				else if(counter_rows == 1)
-				{
-					line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-					used_pixels++;
-					line_buffer0.emplace(line_buffer0.begin(), input_image[used_pixels++]);
-					line_buffer1.emplace(line_buffer1.begin(), input_image[used_pixels++]);
-				}
-				else if(counter_rows == 2)
-				{
-					line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-							
-					line_buffer0.emplace(line_buffer0.begin(), input_image[used_pixels++]);
-					used_pixels += 2;
-					line_buffer1.emplace(line_buffer1.begin(), input_image[pixels_read - num_of_channels*img_size-1]);
-				}
-				else
-				{
-					line_buffer2.emplace(line_buffer2.begin(), input_image[pixels_read++]);
-							
-					line_buffer0.emplace(line_buffer0.begin(), input_image[pixels_read - 2*32*img_size-1]);
-					line_buffer1.emplace(line_buffer1.begin(), input_image[pixels_read - 32*img_size-1]);
-				}
+
+				weights_buffer0.emplace(weights_buffer0.begin(), weights_buffer0[31]);
+				weights_buffer1.emplace(weights_buffer1.begin(), weights_buffer1[31]);
+				weights_buffer2.emplace(weights_buffer2.begin(), weights_buffer2[31]);
+				weights_buffer3.emplace(weights_buffer3.begin(), weights_buffer3[31]);
+				weights_buffer4.emplace(weights_buffer4.begin(), weights_buffer4[31]);
+				weights_buffer5.emplace(weights_buffer5.begin(), weights_buffer5[31]);
+				weights_buffer6.emplace(weights_buffer6.begin(), weights_buffer6[31]);
+				weights_buffer7.emplace(weights_buffer7.begin(), weights_buffer7[31]);
+				weights_buffer8.emplace(weights_buffer8.begin(), weights_buffer8[31]);
 
 				// CONTROL PART:
 
-				// Counting channels done, when =32 one output pixels has been created
 				counter_channel++;
 
-				// When convolution has been done 32 times (number of input channels)
-				// One output pixel is produced
 				if(counter_channel == num_of_channels)
 				{
 					conv_sum = MAC[0] + MAC[1] + MAC[2] + MAC[3] + MAC[4] + MAC[5] + MAC[6] + MAC[7] + MAC[8];
@@ -1183,11 +1136,7 @@ void Hardware::conv2()
 					else	
 						output_image.push_back(0);
 
-					// Counting channels done, when =3 one output pixels has been created
 					counter_channel = 0;
-
-					// Resetting weights reading position back to channel 0 for this filter
-					pos_weights = filter*3*3*32;
 
 					if(flag_end_of_row) 
 					{
@@ -1201,13 +1150,6 @@ void Hardware::conv2()
 						counter_columns++;
 					}
 
-					// Resetting counter for weights index, each time one full-depth image slice is convoluted
-					// And an output pixel is created, algorithm takes new image 3x3 slice from the first channel
-					// So it needs to read the same 3x3 weights slice again
-					// pos_weights = 0;
-
-					// If all slices (32 of them) are done for each input channel
-					// A row has finished and it's time to switch to other buffer
 					if(counter_columns == img_size - 3)
 					{
 						flag_end_of_row = 1;				

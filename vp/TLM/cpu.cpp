@@ -227,7 +227,7 @@ void Cpu::software()
 		// Padding image
 		pad_img(CONV1_PICTURE_SIZE, CONV1_NUM_CHANNELS);
 
-		//format_image(CONV1_PADDED_PICTURE_SIZE, CONV1_NUM_CHANNELS);
+		format_image(CONV1_PADDED_PICTURE_SIZE, CONV1_NUM_CHANNELS);
 
 		if(ram.size() != CONV1_PADDED_PICTURE_SIZE * CONV1_PADDED_PICTURE_SIZE * CONV1_NUM_CHANNELS)
 			cout << "ERROR IN PADDING BEFORE CONV1." << endl;
@@ -491,7 +491,7 @@ void Cpu::software()
 		// Padding image
 		pad_img(CONV2_PICTURE_SIZE, CONV2_NUM_CHANNELS);
 
-		//format_image(CONV2_PADDED_PICTURE_SIZE, CONV2_NUM_CHANNELS);
+		format_image(CONV2_PADDED_PICTURE_SIZE, CONV2_NUM_CHANNELS);
 
 		if(ram.size() != CONV2_PADDED_PICTURE_SIZE * CONV2_PADDED_PICTURE_SIZE * CONV2_NUM_CHANNELS)
 			cout << "ERROR IN PADDING BEFORE CONV2." << endl;
@@ -832,7 +832,7 @@ void Cpu::software()
 		// Padding image
 		pad_img(CONV3_PICTURE_SIZE, CONV3_NUM_CHANNELS);
 
-		//format_image(CONV3_PADDED_PICTURE_SIZE, CONV3_NUM_CHANNELS);
+		format_image(CONV3_PADDED_PICTURE_SIZE, CONV3_NUM_CHANNELS);
 
 		if(ram.size() != CONV3_PADDED_PICTURE_SIZE * CONV3_PADDED_PICTURE_SIZE * CONV3_NUM_CHANNELS)
 			cout << "ERROR IN PADDING BEFORE CONV3." << endl;
@@ -1328,7 +1328,7 @@ void Cpu::software()
 				max_value = dense2_output[0][i];
 				calculated_label = i;
 			}
-			//cout << dense2_output[0][i] << endl;
+			cout << dense2_output[0][i] << endl;
 		}
 
 		#ifdef PRINTS

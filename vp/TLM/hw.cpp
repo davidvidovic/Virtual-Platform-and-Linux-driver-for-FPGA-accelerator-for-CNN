@@ -458,13 +458,30 @@ void Hardware::conv0()
 		
 		for (int filter = 0; filter < num_of_filters; ++filter)
 		{		
-			cout << "Convoluting filter " << filter << endl;
+			cout << "Convoluting filter " << filter << "..." << endl;
 			counter_rows = 0;
 			counter_columns = 0;
 			counter_channel = 0;
 			flag_end_of_row = 0;
 
-			// Weights buffers must be cleared for each new filter
+			// Resetting pixels that have been read from BRAM input image
+			// For each new filter, so the counter always starts at 0
+			//pixels_read = 0;
+			address_read0 = 0;
+			address_read1 = 1;
+			address_read2 = 2;
+
+			// Determing the start address for weights for each filter
+			// Weights are formated in 3x3 slices, x3 for each channel, and every filter has it own
+			// Set of 3x3x3 weights, hence x'filter'.
+			//pos_weights = filter * 3*3*3;
+
+			// Calculating starting addresses only once at the start of each filter
+			address_weights_read0 = filter * 27;
+			address_weights_read1 = filter * 27 + 1;
+			address_weights_read2 = filter * 27 + 2;
+
+			// Cleaning weights buffers at the start of each new filter
 			weights_buffer0.clear();
 			weights_buffer1.clear();
 			weights_buffer2.clear();
@@ -475,62 +492,130 @@ void Hardware::conv0()
 			weights_buffer7.clear();
 			weights_buffer8.clear();
 
-			for(int i = 0; i < 3; i++)
+			// Filling weights buffers
+			for(int i = 0; i < 3; i ++)
 			{
 				for(int j = 0; j < 3; j++)
 				{
-					// Buffering weights data
-					address_weights_read0 = filter*3*3*3 + i*3 + j*3*3;
-					address_weights_read1 = filter*3*3*3 + i*3 + j*3*3  + 1;
-					address_weights_read2 = filter*3*3*3 + i*3 + j*3*3  + 2;
-
-					if(i == 0)
+					if(j == 0)
 					{
 						weights_buffer0.emplace(weights_buffer0.begin(), weigts[address_weights_read0]);
 						weights_buffer1.emplace(weights_buffer1.begin(), weigts[address_weights_read1]);
 						weights_buffer2.emplace(weights_buffer2.begin(), weigts[address_weights_read2]);
 					}
-					if(i == 1)
+					if(j == 1)
 					{
 						weights_buffer3.emplace(weights_buffer3.begin(), weigts[address_weights_read0]);
 						weights_buffer4.emplace(weights_buffer4.begin(), weigts[address_weights_read1]);
 						weights_buffer5.emplace(weights_buffer5.begin(), weigts[address_weights_read2]);
 					}
-					if(i == 2)
+					if(j == 2)
 					{
 						weights_buffer6.emplace(weights_buffer6.begin(), weigts[address_weights_read0]);
 						weights_buffer7.emplace(weights_buffer7.begin(), weigts[address_weights_read1]);
 						weights_buffer8.emplace(weights_buffer8.begin(), weigts[address_weights_read2]);
 					}
+
+					address_weights_read0 = address_weights_read0 + 3;
+					address_weights_read1 = address_weights_read1 + 3;
+					address_weights_read2 = address_weights_read2 + 3;
 				}
 			}
 
 			while(counter_rows < img_size - 2)
 			{
 				// 9 CLK periods wasted while the buffer fills up with data
+				// First reading: 0 34 68
+				// Then reading: 1156 1190 1224	and so on
 
 				// If a new row of convolution is starting
 				if(counter_columns == 0 && counter_channel == 0)
 				{
+					
 					// Cleaning line buffers for new data at the start of each new row
 					line_buffer0.clear();
 					line_buffer1.clear();
 					line_buffer2.clear();
 					
-					for(int i = 0; i < 3; i++)
+					if(counter_rows == 0)
 					{
-						for(int j = 0; j < 3; j++)
+						for(int i = 0; i < 9; i++)
 						{
-							// Buffering image data
-
-							address_read0 = counter_rows*34 + i + j * 34*34;
-							// Cannot be done address_read1 = address_read0 + 34 since it takes 2 CLK periods for that 
-							address_read1 = counter_rows*34 + i + j * 34*34 + 34;
-							address_read2 = counter_rows*34 + i + j * 34*34 + 68;
-
 							line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
 							line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
 							line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+
+							address_read0 = address_read0 + 3;
+							address_read1 = address_read1 + 3;
+							address_read2 = address_read2 + 3;
+			
+							// TIME 1 CLK PERIOD
+							#ifdef QUANTUM
+							qk.inc(sc_time(CLK_PERIOD, SC_NS));
+							offset = qk.get_local_time();
+							qk.set_and_sync(offset);
+							#endif
+						}	
+					}
+					else if(counter_rows == 1)
+					{
+						address_read0 = 1;
+						address_read1 = 2;
+						address_read2 = 306;
+						for(int i = 0; i < 9; i++)
+						{
+							line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+							line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+							line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+
+							address_read0 = address_read0 + 3;
+							address_read1 = address_read1 + 3;
+							address_read2 = address_read2 + 1;
+
+							// TIME 1 CLK PERIOD
+							#ifdef QUANTUM
+							qk.inc(sc_time(CLK_PERIOD, SC_NS));
+							offset = qk.get_local_time();
+							qk.set_and_sync(offset);
+							#endif
+						}	
+					}
+					else if(counter_rows == 2)
+					{
+						address_read0 = 2;
+						address_read1 = 306;
+						address_read2 = 408;
+						for(int i = 0; i < 9; i++)
+						{
+							line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+							line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+							line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+
+							address_read0 = address_read0 + 3;
+							address_read1 = address_read1 + 1;
+							address_read2 = address_read2 + 1;
+
+							// TIME 1 CLK PERIOD
+							#ifdef QUANTUM
+							qk.inc(sc_time(CLK_PERIOD, SC_NS));
+							offset = qk.get_local_time();
+							qk.set_and_sync(offset);
+							#endif
+						}	
+					}
+					else
+					{
+						address_read0 = address_read2 - 204;
+						address_read1 = address_read2 - 102;
+						for(int i = 0; i < 9; i++)
+						{
+							line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+							line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+							line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+							
+							address_read0 = address_read2 - 203;
+							address_read1 = address_read2 - 101;
+							address_read2 = address_read2 + 1;
 
 							// TIME 1 CLK PERIOD
 							#ifdef QUANTUM
@@ -539,8 +624,8 @@ void Hardware::conv0()
 							qk.set_and_sync(offset);
 							#endif
 						}
-					}	
-				}	
+					}
+				}
 
 				// If an output pixel has been created, or at start of convolution, 
 				// Empty MAC modules for a new pixel (3x3 img slice)
@@ -573,19 +658,52 @@ void Hardware::conv0()
 				{
 					line_buffer0.emplace(line_buffer0.begin(), 0);
 					line_buffer1.emplace(line_buffer1.begin(), 0);
-					line_buffer2.emplace(line_buffer2.begin(), 0);		
+					line_buffer2.emplace(line_buffer2.begin(), 0);			
 				}
-				else 
+				// When convoluting pixels starting in the first row of each channel, it is neccessary to
+				// Fill line buffers with 3 new pixels since those pixels have not been read yet
+				else if(counter_rows == 0)
 				{
-					address_read0 = (counter_columns+3) + counter_rows*34 + counter_channel*34*34;
-					address_read1 = (counter_columns+3) + counter_rows*34 + counter_channel*34*34 + 34;
-					address_read2 = (counter_columns+3) + counter_rows*34 + counter_channel*34*34 + 68;
-
 					line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
 					line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
-					line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);	
+					line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+
+					address_read0 = address_read0 + 3;
+					address_read1 = address_read1 + 3;
+					address_read2 = address_read2 + 3;
+				}
+				else if(counter_rows == 1)
+				{
+					line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+					line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+					line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+					
+					address_read0 = address_read0 + 3;
+					address_read1 = address_read1 + 3;
+					address_read2 = address_read2 + 1;
+				}
+				else if(counter_rows == 2)
+				{	
+					line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+					line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+					line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+					
+					address_read0 = address_read0 + 3;
+					address_read1 = address_read1 + 1;
+					address_read2 = address_read2 + 1;
+				}
+				else
+				{
+					line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+					line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+					line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+					
+					address_read0 = address_read2 - 203;
+					address_read1 = address_read2 - 101;
+					address_read2 = address_read2 + 1;
 				}
 
+				
 				weights_buffer0.emplace(weights_buffer0.begin(), weights_buffer0[2]);
 				weights_buffer1.emplace(weights_buffer1.begin(), weights_buffer1[2]);
 				weights_buffer2.emplace(weights_buffer2.begin(), weights_buffer2[2]);
@@ -615,6 +733,9 @@ void Hardware::conv0()
 					// Counting channels done, when =3 one output pixels has been created
 					counter_channel = 0;
 
+					// Resetting weights reading position back to channel 0 for this filter
+					//pos_weights = filter * 3*3*3;
+
 					if(flag_end_of_row) 
 					{
 						counter_rows++;
@@ -627,6 +748,11 @@ void Hardware::conv0()
 						counter_columns++;
 					}
 
+					// Resetting counter for weights index, each time one full-depth image slice is convoluted
+					// And an output pixel is created, algorithm takes new image 3x3 slice from the first channel
+					// So it needs to read the same 3x3 weights slice again
+					// pos_weights = 0;
+
 					// If all slices (32 of them) are done for each input channel
 					// A row has finished and it's time to switch to other buffer
 					if(counter_columns == img_size - 3)
@@ -638,6 +764,7 @@ void Hardware::conv0()
 						// When a row has finished(all 3x3x34x3 pixels been read from BRAM), algorithm needs
 						// 3 CLK periods to finish convoluting data that is already in line buffers, before
 						// It can continue onto the new row (final 3 image 3x3 slices)
+						
 					}
 				}
 
@@ -709,6 +836,7 @@ void Hardware::conv1()
 
 		// ----
 
+
 		int counter_columns = 0;
 		int counter_rows = 0;
 		int counter_channel = 0;
@@ -720,18 +848,29 @@ void Hardware::conv1()
 		int address_weights_read0 = 0;
 		int address_weights_read1 = 0;
 		int address_weights_read2 = 0;
-
 		
 		for (int filter = 0; filter < num_of_filters; ++filter)
 		{		
+			cout << "Convoluting filter " << conv1_counter*16 + filter << "..." << endl;
 
-			cout << "Convoluting filter " << conv1_counter*16 + filter << endl;
 			counter_rows = 0;
 			counter_columns = 0;
 			counter_channel = 0;
 			flag_end_of_row = 0;
 
-			// Weights buffers must be cleared for each new filter
+			// Resetting pixels that have been read from BRAM input image
+			// For each new filter, so the counter always starts at 0
+			//pixels_read = 0;
+			address_read0 = 0;
+			address_read1 = 1;
+			address_read2 = 2;
+
+			//pos_weights = filter*3*3*32;
+			address_weights_read0 = filter * 288;
+			address_weights_read1 = filter * 288 + 1;
+			address_weights_read2 = filter * 288 + 2;
+
+			// Cleaning weights buffers at the start of each new filter
 			weights_buffer0.clear();
 			weights_buffer1.clear();
 			weights_buffer2.clear();
@@ -742,33 +881,33 @@ void Hardware::conv1()
 			weights_buffer7.clear();
 			weights_buffer8.clear();
 
-			for(int i = 0; i < 3; i++)
+			// Filling weights buffers
+			for(int i = 0; i < 32; i ++)
 			{
-				for(int j = 0; j < 32; j++)
+				for(int j = 0; j < 3; j++)
 				{
-					// Buffering weights data
-					address_weights_read0 = filter*3*3*32 + i*3 + j*3*3;
-					address_weights_read1 = filter*3*3*32 + i*3 + j*3*3 + 1;
-					address_weights_read2 = filter*3*3*32 + i*3 + j*3*3 + 2;
-
-					if(i == 0)
+					if(j == 0)
 					{
 						weights_buffer0.emplace(weights_buffer0.begin(), weigts[address_weights_read0]);
 						weights_buffer1.emplace(weights_buffer1.begin(), weigts[address_weights_read1]);
 						weights_buffer2.emplace(weights_buffer2.begin(), weigts[address_weights_read2]);
 					}
-					if(i == 1)
+					if(j == 1)
 					{
 						weights_buffer3.emplace(weights_buffer3.begin(), weigts[address_weights_read0]);
 						weights_buffer4.emplace(weights_buffer4.begin(), weigts[address_weights_read1]);
 						weights_buffer5.emplace(weights_buffer5.begin(), weigts[address_weights_read2]);
 					}
-					if(i == 2)
+					if(j == 2)
 					{
 						weights_buffer6.emplace(weights_buffer6.begin(), weigts[address_weights_read0]);
 						weights_buffer7.emplace(weights_buffer7.begin(), weigts[address_weights_read1]);
 						weights_buffer8.emplace(weights_buffer8.begin(), weigts[address_weights_read2]);
 					}
+
+					address_weights_read0 = address_weights_read0 + 3;
+					address_weights_read1 = address_weights_read1 + 3;
+					address_weights_read2 = address_weights_read2 + 3;
 				}
 			}
 
@@ -782,20 +921,88 @@ void Hardware::conv1()
 					line_buffer1.clear();
 					line_buffer2.clear();
 					
-					for(int i = 0; i < 3; i++)
+					if(counter_rows == 0)
 					{
-						for(int j = 0; j < 32; j++)
+						for(int i = 0; i < 32*3; i++)
 						{
-							// Buffering image data
-
-							address_read0 = counter_rows*18 + i + j * 18*18;
-							// Cannot be done address_read1 = address_read0 + 18 since it takes 2 CLK periods for that 
-							address_read1 = counter_rows*18 + i + j * 18*18 + 18;
-							address_read2 = counter_rows*18 + i + j * 18*18 + 36;
-
 							line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
 							line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
 							line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+
+							address_read0 = address_read0 + 3;
+							address_read1 = address_read1 + 3;
+							address_read2 = address_read2 + 3;
+			
+							// TIME 1 CLK PERIOD
+							#ifdef QUANTUM
+							qk.inc(sc_time(CLK_PERIOD, SC_NS));
+							offset = qk.get_local_time();
+							qk.set_and_sync(offset);
+							#endif
+						}	
+					}
+					else if(counter_rows == 1)
+					{
+						address_read0 = 1;
+						address_read1 = 2;
+						// 18*3*32
+						address_read2 = 1728;
+						for(int i = 0; i < 32*3; i++)
+						{
+							line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+							line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+							line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+
+							address_read0 = address_read0 + 3;
+							address_read1 = address_read1 + 3;
+							address_read2 = address_read2 + 1;
+
+							// TIME 1 CLK PERIOD
+							#ifdef QUANTUM
+							qk.inc(sc_time(CLK_PERIOD, SC_NS));
+							offset = qk.get_local_time();
+							qk.set_and_sync(offset);
+							#endif
+						}	
+					}
+					else if(counter_rows == 2)
+					{
+						address_read0 = 2;
+						address_read1 = 1728;
+						// 18*4*32
+						address_read2 = 2304;
+						for(int i = 0; i < 32*3; i++)
+						{
+							line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+							line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+							line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+
+							address_read0 = address_read0 + 3;
+							address_read1 = address_read1 + 1;
+							address_read2 = address_read2 + 1;
+
+							// TIME 1 CLK PERIOD
+							#ifdef QUANTUM
+							qk.inc(sc_time(CLK_PERIOD, SC_NS));
+							offset = qk.get_local_time();
+							qk.set_and_sync(offset);
+							#endif
+						}	
+					}
+					else
+					{
+						// Going back 2 rows: 2*18*32
+						address_read0 = address_read2 - 1152;
+						address_read1 = address_read2 - 576;
+						for(int i = 0; i < 32*3; i++)
+						{
+							line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+							line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+							line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+							
+							address_read0 = address_read2 - 1151;
+							address_read1 = address_read2 - 575;
+							address_read2 = address_read2 + 1;
 
 							// TIME 1 CLK PERIOD
 							#ifdef QUANTUM
@@ -804,7 +1011,7 @@ void Hardware::conv1()
 							qk.set_and_sync(offset);
 							#endif
 						}
-					}	
+					}
 				}	
 
 				// If an output pixel has been created, or at start of convolution, 
@@ -836,17 +1043,50 @@ void Hardware::conv1()
 				{
 					line_buffer0.emplace(line_buffer0.begin(), 0);
 					line_buffer1.emplace(line_buffer1.begin(), 0);
-					line_buffer2.emplace(line_buffer2.begin(), 0);		
+					line_buffer2.emplace(line_buffer2.begin(), 0);			
 				}
-				else 
+				// When convoluting pixels starting in the first row of each channel, it is neccessary to
+				// Fill line buffers with 3 new pixels since those pixels have not been read yet
+				else if(counter_rows == 0)
 				{
-					address_read0 = (counter_columns+3) + counter_rows*18 + counter_channel*18*18;
-					address_read1 = (counter_columns+3) + counter_rows*18 + counter_channel*18*18 + 18;
-					address_read2 = (counter_columns+3) + counter_rows*18 + counter_channel*18*18 + 36;
-
 					line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
 					line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
-					line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);	
+					line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+
+					address_read0 = address_read0 + 3;
+					address_read1 = address_read1 + 3;
+					address_read2 = address_read2 + 3;
+				}
+				// 
+				else if(counter_rows == 1)
+				{
+					line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+					line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+					line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+
+					address_read0 = address_read0 + 3;
+					address_read1 = address_read1 + 3;
+					address_read2 = address_read2 + 1;
+				}
+				else if(counter_rows == 2)
+				{
+					line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+					line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+					line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+					
+					address_read0 = address_read0 + 3;
+					address_read1 = address_read1 + 1;
+					address_read2 = address_read2 + 1;
+				}
+				else
+				{
+					line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+					line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+					line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+					
+					address_read0 = address_read2 - 1151;
+					address_read1 = address_read2 - 575;
+					address_read2 = address_read2 + 1;
 				}
 
 				weights_buffer0.emplace(weights_buffer0.begin(), weights_buffer0[31]);
@@ -877,6 +1117,9 @@ void Hardware::conv1()
 
 					// Counting channels done, when =3 one output pixels has been created
 					counter_channel = 0;
+
+					// Resetting weights reading position back to channel 0 for this filter
+					//pos_weights = filter*3*3*32;
 
 					if(flag_end_of_row) 
 					{
@@ -985,17 +1228,30 @@ void Hardware::conv2()
 		int address_weights_read0 = 0;
 		int address_weights_read1 = 0;
 		int address_weights_read2 = 0;
+
 		
 		for (int filter = 0; filter < num_of_filters; ++filter)
 		{		
+			cout << "Convoluting filter " << conv2_counter*16 + filter << "..." << endl;
 
-			cout << "Convoluting filter " << conv2_counter*16 + filter << endl;
 			counter_rows = 0;
 			counter_columns = 0;
 			counter_channel = 0;
 			flag_end_of_row = 0;
 
-			// Weights buffers must be cleared for each new filter
+			// Resetting pixels that have been read from BRAM input image
+			// For each new filter, so the counter always starts at 0
+			//pixels_read = 0;
+			address_read0 = 0;
+			address_read1 = 1;
+			address_read2 = 2;
+
+			//pos_weights = filter*3*3*32;
+			address_weights_read0 = filter * 288;
+			address_weights_read1 = filter * 288 + 1;
+			address_weights_read2 = filter * 288 + 2;
+
+			// Cleaning weights buffers at the start of each new filter
 			weights_buffer0.clear();
 			weights_buffer1.clear();
 			weights_buffer2.clear();
@@ -1006,33 +1262,33 @@ void Hardware::conv2()
 			weights_buffer7.clear();
 			weights_buffer8.clear();
 
-			for(int i = 0; i < 3; i++)
+			// Filling weights buffers
+			for(int i = 0; i < 32; i ++)
 			{
-				for(int j = 0; j < 32; j++)
+				for(int j = 0; j < 3; j++)
 				{
-					// Buffering weights data
-					address_weights_read0 = filter*3*3*32 + i*3 + j*3*3;
-					address_weights_read1 = filter*3*3*32 + i*3 + j*3*3 + 1;
-					address_weights_read2 = filter*3*3*32 + i*3 + j*3*3 + 2;
-
-					if(i == 0)
+					if(j == 0)
 					{
 						weights_buffer0.emplace(weights_buffer0.begin(), weigts[address_weights_read0]);
 						weights_buffer1.emplace(weights_buffer1.begin(), weigts[address_weights_read1]);
 						weights_buffer2.emplace(weights_buffer2.begin(), weigts[address_weights_read2]);
 					}
-					if(i == 1)
+					if(j == 1)
 					{
 						weights_buffer3.emplace(weights_buffer3.begin(), weigts[address_weights_read0]);
 						weights_buffer4.emplace(weights_buffer4.begin(), weigts[address_weights_read1]);
 						weights_buffer5.emplace(weights_buffer5.begin(), weigts[address_weights_read2]);
 					}
-					if(i == 2)
+					if(j == 2)
 					{
 						weights_buffer6.emplace(weights_buffer6.begin(), weigts[address_weights_read0]);
 						weights_buffer7.emplace(weights_buffer7.begin(), weigts[address_weights_read1]);
 						weights_buffer8.emplace(weights_buffer8.begin(), weigts[address_weights_read2]);
 					}
+
+					address_weights_read0 = address_weights_read0 + 3;
+					address_weights_read1 = address_weights_read1 + 3;
+					address_weights_read2 = address_weights_read2 + 3;
 				}
 			}
 
@@ -1041,25 +1297,23 @@ void Hardware::conv2()
 				// If a new row of convolution is starting
 				if(counter_columns == 0 && counter_channel == 0)
 				{
+
 					// Cleaning line buffers for new data at the start of each new row
 					line_buffer0.clear();
 					line_buffer1.clear();
 					line_buffer2.clear();
 					
-					for(int i = 0; i < 3; i++)
+					if(counter_rows == 0)
 					{
-						for(int j = 0; j < 32; j++)
+						for(int i = 0; i < 32*3; i++)
 						{
-							// Buffering image data
-
-							address_read0 = counter_rows*10 + i + j * 10*10;
-							// Cannot be done address_read1 = address_read0 + 18 since it takes 2 CLK periods for that 
-							address_read1 = counter_rows*10 + i + j * 10*10 + 10;
-							address_read2 = counter_rows*10 + i + j * 10*10 + 20;
-
 							line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
 							line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
 							line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+
+							address_read0 = address_read0 + 3;
+							address_read1 = address_read1 + 3;
+							address_read2 = address_read2 + 3;
 
 							// TIME 1 CLK PERIOD
 							#ifdef QUANTUM
@@ -1067,8 +1321,78 @@ void Hardware::conv2()
 							offset = qk.get_local_time();
 							qk.set_and_sync(offset);
 							#endif
+						}	
+					}
+					else if(counter_rows == 1)
+					{
+						address_read0 = 1;
+						address_read1 = 2;
+						// 10*3*32
+						address_read2 = 960;
+						for(int i = 0; i < 32*3; i++)
+						{
+							line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+							line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+							line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+
+							address_read0 = address_read0 + 3;
+							address_read1 = address_read1 + 3;
+							address_read2 = address_read2 + 1;
+
+							// TIME 1 CLK PERIOD
+							#ifdef QUANTUM
+							qk.inc(sc_time(CLK_PERIOD, SC_NS));
+							offset = qk.get_local_time();
+							qk.set_and_sync(offset);
+							#endif
+						}	
+					}
+					else if(counter_rows == 2)
+					{
+						address_read0 = 2;
+						address_read1 = 960;
+						// 10*4*32
+						address_read2 = 1280;
+						for(int i = 0; i < 32*3; i++)
+						{
+							line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+							line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+							line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+
+							address_read0 = address_read0 + 3;
+							address_read1 = address_read1 + 1;
+							address_read2 = address_read2 + 1;
+
+							// TIME 1 CLK PERIOD
+							#ifdef QUANTUM
+							qk.inc(sc_time(CLK_PERIOD, SC_NS));
+							offset = qk.get_local_time();
+							qk.set_and_sync(offset);
+							#endif
+						}	
+					}
+					else
+					{
+						// Going back 2 rows: 2*10*32
+						address_read0 = address_read2 - 640;
+						address_read1 = address_read2 - 320;
+						for(int i = 0; i < 32*3; i++)
+						{
+							line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+							line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+							line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+							
+							address_read0 = address_read2 - 639;
+							address_read1 = address_read2 - 319;
+							address_read2 = address_read2 + 1;
+							// TIME 1 CLK PERIOD
+							#ifdef QUANTUM
+							qk.inc(sc_time(CLK_PERIOD, SC_NS));
+							offset = qk.get_local_time();
+							qk.set_and_sync(offset);
+							#endif
 						}
-					}	
+					}
 				}	
 
 				// If an output pixel has been created, or at start of convolution, 
@@ -1100,17 +1424,50 @@ void Hardware::conv2()
 				{
 					line_buffer0.emplace(line_buffer0.begin(), 0);
 					line_buffer1.emplace(line_buffer1.begin(), 0);
-					line_buffer2.emplace(line_buffer2.begin(), 0);		
+					line_buffer2.emplace(line_buffer2.begin(), 0);			
 				}
-				else 
+				// When convoluting pixels starting in the first row of each channel, it is neccessary to
+				// Fill line buffers with 3 new pixels since those pixels have not been read yet
+				else if(counter_rows == 0)
 				{
-					address_read0 = (counter_columns+3) + counter_rows*10 + counter_channel*10*10;
-					address_read1 = (counter_columns+3) + counter_rows*10 + counter_channel*10*10 + 10;
-					address_read2 = (counter_columns+3) + counter_rows*10 + counter_channel*10*10 + 20;
-
 					line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
 					line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
-					line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);	
+					line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+
+					address_read0 = address_read0 + 3;
+					address_read1 = address_read1 + 3;
+					address_read2 = address_read2 + 3;
+				}
+				// 
+				else if(counter_rows == 1)
+				{
+					line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+					line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+					line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+
+					address_read0 = address_read0 + 3;
+					address_read1 = address_read1 + 3;
+					address_read2 = address_read2 + 1;
+				}
+				else if(counter_rows == 2)
+				{
+					line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+					line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+					line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+					
+					address_read0 = address_read0 + 3;
+					address_read1 = address_read1 + 1;
+					address_read2 = address_read2 + 1;
+				}
+				else
+				{
+					line_buffer0.emplace(line_buffer0.begin(), input_image[address_read0]);
+					line_buffer1.emplace(line_buffer1.begin(), input_image[address_read1]);
+					line_buffer2.emplace(line_buffer2.begin(), input_image[address_read2]);
+					
+					address_read0 = address_read2 - 639;
+					address_read1 = address_read2 - 319;
+					address_read2 = address_read2 + 1;
 				}
 
 				weights_buffer0.emplace(weights_buffer0.begin(), weights_buffer0[31]);
@@ -1125,8 +1482,11 @@ void Hardware::conv2()
 
 				// CONTROL PART:
 
+				// Counting channels done, when =32 one output pixels has been created
 				counter_channel++;
 
+				// When convolution has been done 32 times (number of input channels)
+				// One output pixel is produced
 				if(counter_channel == num_of_channels)
 				{
 					conv_sum = MAC[0] + MAC[1] + MAC[2] + MAC[3] + MAC[4] + MAC[5] + MAC[6] + MAC[7] + MAC[8];
@@ -1136,7 +1496,11 @@ void Hardware::conv2()
 					else	
 						output_image.push_back(0);
 
+					// Counting channels done, when =3 one output pixels has been created
 					counter_channel = 0;
+
+					// Resetting weights reading position back to channel 0 for this filter
+					//pos_weights = filter*3*3*32;
 
 					if(flag_end_of_row) 
 					{
@@ -1150,6 +1514,13 @@ void Hardware::conv2()
 						counter_columns++;
 					}
 
+					// Resetting counter for weights index, each time one full-depth image slice is convoluted
+					// And an output pixel is created, algorithm takes new image 3x3 slice from the first channel
+					// So it needs to read the same 3x3 weights slice again
+					// pos_weights = 0;
+
+					// If all slices (32 of them) are done for each input channel
+					// A row has finished and it's time to switch to other buffer
 					if(counter_columns == img_size - 3)
 					{
 						flag_end_of_row = 1;				

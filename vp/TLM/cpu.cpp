@@ -1416,6 +1416,8 @@ void Cpu::extract_parameters()
 	}
 	file_param.close(); 
 
+	vector <hwdata_t> temp_ram;
+
 	file_param.open(weights1);
 	lines=num_of_lines(weights1);
 
@@ -1423,9 +1425,26 @@ void Cpu::extract_parameters()
 	{
 		float value;
 		file_param>>value;
-		ram.push_back(value);
+		temp_ram.push_back(value);
 	}
 	file_param.close(); 
+
+	// Format weights 1
+	for(int filter = 0; filter < CONV1_NUM_FILTERS; filter++)	
+	{
+		for(int i = 0; i < 3; i++)
+		{
+			for(int channel = 0; channel < CONV1_NUM_CHANNELS; channel++)	
+			{
+				for(int j = 0; j < 3; j++)
+				{
+					ram.push_back(temp_ram[j + 9*channel + i*3 + filter*3*3*CONV1_NUM_CHANNELS]);
+				}
+			}
+		}
+	}
+
+	temp_ram.clear();
 
 	file_param.open(weights2);
 	lines=num_of_lines(weights2);	
@@ -1434,9 +1453,26 @@ void Cpu::extract_parameters()
 		float value;
 		file_param>>value;
 
-		ram.push_back(value);
+		temp_ram.push_back(value);
 	}
 	file_param.close(); 
+
+	// Format weights 2
+	for(int filter = 0; filter < CONV2_NUM_FILTERS; filter++)	
+	{
+		for(int i = 0; i < 3; i++)
+		{
+			for(int channel = 0; channel < CONV2_NUM_CHANNELS; channel++)	
+			{
+				for(int j = 0; j < 3; j++)
+				{
+					ram.push_back(temp_ram[j + 9*channel + i*3 + filter*3*3*CONV2_NUM_CHANNELS]);
+				}
+			}
+		}
+	}
+
+	temp_ram.clear();
 
 	file_param.open(weights3);
 	lines=num_of_lines(weights3);	
@@ -1444,9 +1480,26 @@ void Cpu::extract_parameters()
 	{
 		float value;
 		file_param>>value;
-		ram.push_back(value);
+		temp_ram.push_back(value);
 	}
 	file_param.close(); 
+
+	// Format weights 3
+	for(int filter = 0; filter < CONV3_NUM_FILTERS; filter++)	
+	{
+		for(int i = 0; i < 3; i++)
+		{
+			for(int channel = 0; channel < CONV3_NUM_CHANNELS; channel++)	
+			{
+				for(int j = 0; j < 3; j++)
+				{
+					ram.push_back(temp_ram[j + 9*channel + i*3 + filter*3*3*CONV3_NUM_CHANNELS]);
+				}
+			}
+		}
+	}
+
+	temp_ram.clear();
 
 }
 
@@ -1583,8 +1636,5 @@ void Cpu::pad_img(int img_size, int num_of_channels)
 	        }
     	}
 }
-
-
-
 
 #endif

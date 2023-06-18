@@ -495,32 +495,37 @@ void Hardware::conv0()
 			// Filling weights buffers
 			for(int i = 0; i < 3; i ++)
 			{
-				for(int j = 0; j < 3; j++)
-				{
-					if(j == 0)
-					{
-						weights_buffer0.emplace(weights_buffer0.begin(), weigts[address_weights_read0]);
-						weights_buffer1.emplace(weights_buffer1.begin(), weigts[address_weights_read1]);
-						weights_buffer2.emplace(weights_buffer2.begin(), weigts[address_weights_read2]);
-					}
-					if(j == 1)
-					{
-						weights_buffer3.emplace(weights_buffer3.begin(), weigts[address_weights_read0]);
-						weights_buffer4.emplace(weights_buffer4.begin(), weigts[address_weights_read1]);
-						weights_buffer5.emplace(weights_buffer5.begin(), weigts[address_weights_read2]);
-					}
-					if(j == 2)
-					{
-						weights_buffer6.emplace(weights_buffer6.begin(), weigts[address_weights_read0]);
-						weights_buffer7.emplace(weights_buffer7.begin(), weigts[address_weights_read1]);
-						weights_buffer8.emplace(weights_buffer8.begin(), weigts[address_weights_read2]);
-					}
+				weights_buffer0.emplace(weights_buffer0.begin(), weigts[address_weights_read0]);
+				weights_buffer1.emplace(weights_buffer1.begin(), weigts[address_weights_read1]);
+				weights_buffer2.emplace(weights_buffer2.begin(), weigts[address_weights_read2]);
 
-					address_weights_read0 = address_weights_read0 + 3;
-					address_weights_read1 = address_weights_read1 + 3;
-					address_weights_read2 = address_weights_read2 + 3;
-				}
+				address_weights_read0 = address_weights_read0 + 3;
+				address_weights_read1 = address_weights_read1 + 3;
+				address_weights_read2 = address_weights_read2 + 3;
 			}
+
+			for(int i = 0; i < 3; i ++)
+			{
+				weights_buffer3.emplace(weights_buffer3.begin(), weigts[address_weights_read0]);
+				weights_buffer4.emplace(weights_buffer4.begin(), weigts[address_weights_read1]);
+				weights_buffer5.emplace(weights_buffer5.begin(), weigts[address_weights_read2]);
+
+				address_weights_read0 = address_weights_read0 + 3;
+				address_weights_read1 = address_weights_read1 + 3;
+				address_weights_read2 = address_weights_read2 + 3;
+			}
+
+			for(int i = 0; i < 3; i ++)
+			{
+				weights_buffer6.emplace(weights_buffer6.begin(), weigts[address_weights_read0]);
+				weights_buffer7.emplace(weights_buffer7.begin(), weigts[address_weights_read1]);
+				weights_buffer8.emplace(weights_buffer8.begin(), weigts[address_weights_read2]);
+
+				address_weights_read0 = address_weights_read0 + 3;
+				address_weights_read1 = address_weights_read1 + 3;
+				address_weights_read2 = address_weights_read2 + 3;
+			}
+
 
 			while(counter_rows < img_size - 2)
 			{
@@ -605,6 +610,7 @@ void Hardware::conv0()
 					}
 					else
 					{
+						//address_read2 -= 4;   next
 						address_read0 = address_read2 - 204;
 						address_read1 = address_read2 - 102;
 						for(int i = 0; i < 9; i++)
@@ -884,31 +890,35 @@ void Hardware::conv1()
 			// Filling weights buffers
 			for(int i = 0; i < 32; i ++)
 			{
-				for(int j = 0; j < 3; j++)
-				{
-					if(j == 0)
-					{
-						weights_buffer0.emplace(weights_buffer0.begin(), weigts[address_weights_read0]);
-						weights_buffer1.emplace(weights_buffer1.begin(), weigts[address_weights_read1]);
-						weights_buffer2.emplace(weights_buffer2.begin(), weigts[address_weights_read2]);
-					}
-					if(j == 1)
-					{
-						weights_buffer3.emplace(weights_buffer3.begin(), weigts[address_weights_read0]);
-						weights_buffer4.emplace(weights_buffer4.begin(), weigts[address_weights_read1]);
-						weights_buffer5.emplace(weights_buffer5.begin(), weigts[address_weights_read2]);
-					}
-					if(j == 2)
-					{
-						weights_buffer6.emplace(weights_buffer6.begin(), weigts[address_weights_read0]);
-						weights_buffer7.emplace(weights_buffer7.begin(), weigts[address_weights_read1]);
-						weights_buffer8.emplace(weights_buffer8.begin(), weigts[address_weights_read2]);
-					}
+				weights_buffer0.emplace(weights_buffer0.begin(), weigts[address_weights_read0]);
+				weights_buffer1.emplace(weights_buffer1.begin(), weigts[address_weights_read1]);
+				weights_buffer2.emplace(weights_buffer2.begin(), weigts[address_weights_read2]);
 
-					address_weights_read0 = address_weights_read0 + 3;
-					address_weights_read1 = address_weights_read1 + 3;
-					address_weights_read2 = address_weights_read2 + 3;
-				}
+				address_weights_read0 = address_weights_read0 + 3;
+				address_weights_read1 = address_weights_read1 + 3;
+				address_weights_read2 = address_weights_read2 + 3;
+			}
+
+			for(int i = 0; i < 32; i ++)
+			{
+				weights_buffer3.emplace(weights_buffer3.begin(), weigts[address_weights_read0]);
+				weights_buffer4.emplace(weights_buffer4.begin(), weigts[address_weights_read1]);
+				weights_buffer5.emplace(weights_buffer5.begin(), weigts[address_weights_read2]);
+
+				address_weights_read0 = address_weights_read0 + 3;
+				address_weights_read1 = address_weights_read1 + 3;
+				address_weights_read2 = address_weights_read2 + 3;
+			}
+
+			for(int i = 0; i < 32; i ++)
+			{
+				weights_buffer6.emplace(weights_buffer6.begin(), weigts[address_weights_read0]);
+				weights_buffer7.emplace(weights_buffer7.begin(), weigts[address_weights_read1]);
+				weights_buffer8.emplace(weights_buffer8.begin(), weigts[address_weights_read2]);
+
+				address_weights_read0 = address_weights_read0 + 3;
+				address_weights_read1 = address_weights_read1 + 3;
+				address_weights_read2 = address_weights_read2 + 3;
 			}
 
 			while(counter_rows < img_size - 2)
@@ -1265,31 +1275,35 @@ void Hardware::conv2()
 			// Filling weights buffers
 			for(int i = 0; i < 32; i ++)
 			{
-				for(int j = 0; j < 3; j++)
-				{
-					if(j == 0)
-					{
-						weights_buffer0.emplace(weights_buffer0.begin(), weigts[address_weights_read0]);
-						weights_buffer1.emplace(weights_buffer1.begin(), weigts[address_weights_read1]);
-						weights_buffer2.emplace(weights_buffer2.begin(), weigts[address_weights_read2]);
-					}
-					if(j == 1)
-					{
-						weights_buffer3.emplace(weights_buffer3.begin(), weigts[address_weights_read0]);
-						weights_buffer4.emplace(weights_buffer4.begin(), weigts[address_weights_read1]);
-						weights_buffer5.emplace(weights_buffer5.begin(), weigts[address_weights_read2]);
-					}
-					if(j == 2)
-					{
-						weights_buffer6.emplace(weights_buffer6.begin(), weigts[address_weights_read0]);
-						weights_buffer7.emplace(weights_buffer7.begin(), weigts[address_weights_read1]);
-						weights_buffer8.emplace(weights_buffer8.begin(), weigts[address_weights_read2]);
-					}
+				weights_buffer0.emplace(weights_buffer0.begin(), weigts[address_weights_read0]);
+				weights_buffer1.emplace(weights_buffer1.begin(), weigts[address_weights_read1]);
+				weights_buffer2.emplace(weights_buffer2.begin(), weigts[address_weights_read2]);
 
-					address_weights_read0 = address_weights_read0 + 3;
-					address_weights_read1 = address_weights_read1 + 3;
-					address_weights_read2 = address_weights_read2 + 3;
-				}
+				address_weights_read0 = address_weights_read0 + 3;
+				address_weights_read1 = address_weights_read1 + 3;
+				address_weights_read2 = address_weights_read2 + 3;
+			}
+
+			for(int i = 0; i < 32; i ++)
+			{
+				weights_buffer3.emplace(weights_buffer3.begin(), weigts[address_weights_read0]);
+				weights_buffer4.emplace(weights_buffer4.begin(), weigts[address_weights_read1]);
+				weights_buffer5.emplace(weights_buffer5.begin(), weigts[address_weights_read2]);
+
+				address_weights_read0 = address_weights_read0 + 3;
+				address_weights_read1 = address_weights_read1 + 3;
+				address_weights_read2 = address_weights_read2 + 3;
+			}
+
+			for(int i = 0; i < 32; i ++)
+			{
+				weights_buffer6.emplace(weights_buffer6.begin(), weigts[address_weights_read0]);
+				weights_buffer7.emplace(weights_buffer7.begin(), weigts[address_weights_read1]);
+				weights_buffer8.emplace(weights_buffer8.begin(), weigts[address_weights_read2]);
+
+				address_weights_read0 = address_weights_read0 + 3;
+				address_weights_read1 = address_weights_read1 + 3;
+				address_weights_read2 = address_weights_read2 + 3;
 			}
 
 			while(counter_rows < img_size - 2)

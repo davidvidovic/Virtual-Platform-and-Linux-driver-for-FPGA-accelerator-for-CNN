@@ -24,57 +24,51 @@ MODULE_LICENSE("Dual BSD/GPL");
 MODULE_DESCRIPTION("CNN IP core driver");
 
 #define DRIVER_NAME "cnn"
+#define DEVICE_NAME "xilcnn"    
 
-static dev_t my_dev_id;
+
+dev_t my_dev_id;
 static struct class *my_class;
-static struct cdev  *my_cdev;
+static struct device *my_device;
+static struct cdev *my_cdev;
+static struct cnn_info *cnn = NULL;
+static struct cnn_info *dma = NULL;
 
-static int cnn_probe     (struct platform_device *pdev);
-static int cnn_remove    (struct platform_device *pdev);
-static int cnn_open      (struct inode *pinode, struct file *pfile);
-static int cnn_close     (struct inode *pinode, struct file *pfile);
-static ssize_t cnn_read  (struct file *pfile, char __user *buffer, size_t length, loff_t *offset);
-static ssize_t cnn_write (struct file *pfile, const char __user *buffer, size_t length, loff_t *offset);
+static int cnn_probe(struct platform_device *pdev);
+static int cnn_remove(struct platform_device *pdev);
+int cnn_open(struct inode *pinode, struct file *pfile);
+int cnn_close(struct inode *pinode, struct file *pfile);
+ssize_t cnn_read(struct file *pfile, char __user *buffer, size_t length, loff_t *offset);
+ssize_t cnn_write(struct file *pfile, const char __user *buffer, size_t length, loff_t *offset);
 
-static int  __init cnn_init(void);
+static int __init cnn_init(void);
 static void __exit cnn_exit(void);
 
-struct device_info
-{
-    unsigned long mem_start;
-    unsigned long mem_end;
-    void __iomem *base_addr;
+struct file_operations my_fops = {
+    .owner = THIS_MODULE,
+    .open = cnn_open,
+    .read = cnn_read,
+    .write = cnn_write,
+    .release = cnn_close,
 };
 
-static struct device_info *cnn = NULL;
-static struct device_info *dma = NULL;
-
-static struct of_device_id device_of_match[] = {
-    { .compatible = "xlnx,cnn", },
-    { .compatible = "xlnx,dma", },
-    { /* end of list */ }
+static struct of_device_id cnn_of_match[] = {
+	{ .compatible = "xlnx,cnn", },
+	{ .compatible = "xlnx,dma", },
+	{ /* end of list */ },
 };
 
-MODULE_DEVICE_TABLE(of, device_of_match);
-
-static struct platform_driver my_driver = {
-    .driver = {
-        .name = DRIVER_NAME,
-        .owner = THIS_MODULE,
-        .of_match_table	= device_of_match,
-    },
-    .probe = cnn_probe,
-    .remove	= cnn_remove,
+static struct platform_driver cnn_driver = {
+	.driver = {
+		.name = DRIVER_NAME,
+		.owner = THIS_MODULE,
+		.of_match_table	= cnn_of_match,
+	},
+	.probe		= cnn_probe,
+	.remove		= cnn_remove,
 };
 
-struct file_operations my_fops =
-{
-	.owner   = THIS_MODULE,
-	.open    = cnn_open,
-	.read    = cnn_read,
-	.write   = cnn_write,
-	.release = cnn_close,
-};
+MODULE_DEVICE_TABLE(of, cnn_of_match);
 
 
 /* -------------------------------------- */

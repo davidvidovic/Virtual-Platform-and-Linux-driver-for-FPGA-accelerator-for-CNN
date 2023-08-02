@@ -39,21 +39,57 @@ MODULE_DESCRIPTION("CNN IP core driver");
 #define DRIVER_NAME "cnn_driver" 
 #define DEVICE_NAME "cnn_device"
 #define BUFF_SIZE 20
-#define MAX_PKT_LEN 32*32*32*2	// NOT LIKE THIS. EVERY TRANSACTION WILL HAVE ITS LENGTH
 
-#define MM2S_CONTROL_REGISTER       0x00
-#define MM2S_STATUS_REGISTER        0x04
-#define MM2S_SRC_ADDRESS_REGISTER   0x18
-#define MM2S_TRNSFR_LENGTH_REGISTER 0x28
+/* -------------------------------------- */
+/* --------CNN IP RELATED MACROS--------- */
+/* -------------------------------------- */
 
-#define S2MM_CONTROL_REGISTER       0x30
-#define S2MM_STATUS_REGISTER        0x34
-#define S2MM_DST_ADDRESS_REGISTER   0x48
-#define S2MM_BUFF_LENGTH_REGISTER   0x58
+#define BIAS_INPUT_LEN			128	
 
-#define DMACR_RESET					0x04
-#define IOC_IRQ_FLAG				1 << 12
-#define ERR_IRQ_EN					1 << 14
+#define CONV0_PICTURE_INPUT_LEN		34*34*3*2
+#define CONV0_WEIGHTS_INPUT_LEN		3*3*3*32
+
+#define CONV1_PICTURE_INPUT_LEN	 	18*18*32*2
+#define CONV1_WEIGHTS_INPUT_LEN		3*3*32*32/2
+
+#define CONV2_PICTURE_INPUT_LEN	 	10*10*32*2
+#define CONV2_WEIGHTS_INPUT_LEN		3*3*32*64/4
+
+#define MAX_PKT_LEN			CONV1_PICTURE_INPUT_LEN
+
+#define IP_COMMAND_LOAD_BIAS		0x0001
+#define IP_COMMAND_LOAD_WEIGHTS0	0x0002
+#define IP_COMMAND_LOAD_CONV0_INPUT	0x0004
+#define IP_COMMAND_START_CONV0		0x0008
+#define IP_COMMAND_LOAD_WEIGHTS1	0x0010
+#define IP_COMMAND_LOAD_CONV1_INPUT	0x0020
+#define IP_COMMAND_START_CONV1		0x0040
+#define IP_COMMAND_LOAD_WEIGHTS2	0x0080
+#define IP_COMMAND_LOAD_CONV2_INPUT	0x0100
+#define IP_COMMAND_START_CONV2		0x0200
+#define IP_COMMAND_RESET		0x0400
+#define IP_COMMAND_READ_CONV0_OUTPUT	0x0800
+#define IP_COMMAND_READ_CONV1_OUTPUT	0x1000
+#define IP_COMMAND_READ_CONV2_OUTPUT	0x2000
+
+
+/* -------------------------------------- */
+/* ----------DMA RELATED MACROS---------- */
+/* -------------------------------------- */
+
+#define MM2S_CONTROL_REGISTER       	0x00
+#define MM2S_STATUS_REGISTER        	0x04
+#define MM2S_SRC_ADDRESS_REGISTER   	0x18
+#define MM2S_TRNSFR_LENGTH_REGISTER 	0x28
+
+#define S2MM_CONTROL_REGISTER       	0x30
+#define S2MM_STATUS_REGISTER       	0x34
+#define S2MM_DST_ADDRESS_REGISTER   	0x48
+#define S2MM_BUFF_LENGTH_REGISTER   	0x58
+
+#define DMACR_RESET			0x04
+#define IOC_IRQ_FLAG			1 << 12
+#define ERR_IRQ_EN			1 << 14
 
 
 /* -------------------------------------- */
@@ -70,12 +106,13 @@ ssize_t     cnn_write(struct file *pfile, const char __user *buffer, size_t leng
 static int  __init cnn_init(void);
 static void __exit cnn_exit(void);
 
-static ssize_t cnn_mmap(struct file *f, struct vm_area_struct *vma_s);
+static int cnn_mmap(struct file *f, struct vm_area_struct *vma_s);
 static irqreturn_t cnn_isr(int irq, void*dev_id);
 static irqreturn_t dma_isr(int irq, void*dev_id);
 int dma_init(void __iomem *base_address);
 u32 dma_simple_write(dma_addr_t TxBufferPtr, u32 max_pkt_len, void __iomem *base_address); 
 u32 dma_simple_read(dma_addr_t TxBufferPtr, u32 max_pkt_len, void __iomem *base_address);
+int load_input_image(int CONV_LAYER);
 
 
 /* -------------------------------------- */
@@ -84,10 +121,10 @@ u32 dma_simple_read(dma_addr_t TxBufferPtr, u32 max_pkt_len, void __iomem *base_
 
 struct cnn_info
 {
-    unsigned long mem_start;
-    unsigned long mem_end;
-    void __iomem *base_addr;
-    int irq_num;
+	unsigned long mem_start;
+	unsigned long mem_end;
+	void __iomem *base_addr;
+	int irq_num;
 };
 
 dev_t my_dev_id;
@@ -104,7 +141,7 @@ struct file_operations my_fops =
 	.release = cnn_close,
 	.read = cnn_read,
 	.write = cnn_write,
-	//.mmap = cnn_mmap
+	.mmap = cnn_mmap
 };
 
 static struct of_device_id cnn_of_match[] = {
@@ -137,63 +174,63 @@ u32 *tx_vir_buffer;		// SHOULD BE 16?
 
 static int __init cnn_init(void)
 {
-    int ret = 0;
-    int i = 0;
+	int ret = 0;
+	int i = 0;
 
-    printk(KERN_INFO "cnn_init: Initialize Module \"%s\"\n", DEVICE_NAME);
+	printk(KERN_INFO "[cnn_init] Initialize Module \"%s\"\n", DEVICE_NAME);
 
-    /* Dynamically allocate MAJOR and MINOR numbers. */
-    ret = alloc_chrdev_region(&my_dev_id, 0, 2, "CNN_region");
-    if(ret)
-    {
-        printk(KERN_ALERT "cnn_init: Failed CHRDEV!\n");
-        return -1;
-    }
-    printk(KERN_INFO "cnn_init: Successful CHRDEV!\n");
+	/* Dynamically allocate MAJOR and MINOR numbers. */
+	ret = alloc_chrdev_region(&my_dev_id, 0, 2, "CNN_region");
+	if(ret)
+	{
+		printk(KERN_ALERT "[cnn_init] Failed CHRDEV!\n");
+		return -1;
+	}
+	printk(KERN_INFO "[cnn_init] Successful CHRDEV!\n");
 
-    /* Creating NODE file */
+	/* Creating NODE file */
 
-    /* Firstly, class_create is used to create class to be used as a parametar going forward. */
-    my_class = class_create(THIS_MODULE, "cnn_class");
-    if(my_class == NULL)
-    {
-        printk(KERN_ALERT "cnn_init: Failed class create!\n");
-        goto fail_0;
-    }
-    printk(KERN_INFO "cnn_init: Successful class chardev1 create!\n");
+	/* Firstly, class_create is used to create class to be used as a parametar going forward. */
+	my_class = class_create(THIS_MODULE, "cnn_class");
+	if(my_class == NULL)
+	{
+		printk(KERN_ALERT "[cnn_init] Failed class create!\n");
+		goto fail_0;
+	}
+	printk(KERN_INFO "[cnn_init] Successful class chardev1 create!\n");
 
-    /* Secondly, device_create is used to create devices in a region. */
-    my_device = device_create(my_class, NULL, MKDEV(MAJOR(my_dev_id), 0), NULL, "xlnx,cnn");
-    if(my_device == NULL)
-    {
-        goto fail_1;
-    }
-    printk(KERN_INFO "cnn_init: Device xlnx,cnn created\n");
+	/* Secondly, device_create is used to create devices in a region. */
+	my_device = device_create(my_class, NULL, MKDEV(MAJOR(my_dev_id), 0), NULL, "xlnx,cnn");
+	if(my_device == NULL)
+	{
+		goto fail_1;
+	}
+	printk(KERN_INFO "[cnn_init] Device xlnx,cnn created\n");
 
 
 	my_device = device_create(my_class, NULL, MKDEV(MAJOR(my_dev_id), 1), NULL, "xlnx,axi-dma");
-    if(my_device == NULL)
-    {
-        goto fail_2;
-    }
-    printk(KERN_INFO "cnn_init: Device xlnx,axi-dma created\n");
-	
-    my_cdev = cdev_alloc();	
-    my_cdev->ops = &my_fops;
-    my_cdev->owner = THIS_MODULE;
-    ret = cdev_add(my_cdev, my_dev_id, 1);
-    if(ret)
-    {
-        printk(KERN_ERR "cnn_init: Failed to add cdev\n");
-        goto fail_3;
-    }
-    printk(KERN_INFO "cnn_init: Module init done\n");
+	if(my_device == NULL)
+	{
+		goto fail_2;
+	}
+	printk(KERN_INFO "[cnn_init] Device xlnx,axi-dma created\n");
 
-    /* Making sure that virtual addresses are mapped to physical addresses that are coherent */
-    tx_vir_buffer = dma_alloc_coherent(NULL, MAX_PKT_LEN, &tx_phy_buffer, GFP_DMA | GFP_KERNEL);
+	my_cdev = cdev_alloc();	
+	my_cdev->ops = &my_fops;
+	my_cdev->owner = THIS_MODULE;
+	ret = cdev_add(my_cdev, my_dev_id, 1);
+	if(ret)
+	{
+		printk(KERN_ERR "[cnn_init] Failed to add cdev\n");
+		goto fail_3;
+	}
+	printk(KERN_INFO "[cnn_init] Module init done\n");
+
+	/* Making sure that virtual addresses are mapped to physical addresses that are coherent */
+	tx_vir_buffer = dma_alloc_coherent(NULL, MAX_PKT_LEN, &tx_phy_buffer, GFP_DMA | GFP_KERNEL);
 	if(!tx_vir_buffer)
 	{
-		printk(KERN_ALERT "cnn_init: Could not allocate dma_alloc_coherent for img");
+		printk(KERN_ALERT "[cnn_init] Could not allocate dma_alloc_coherent for img");
 		goto fail_4;
 	}
 	else
@@ -206,7 +243,7 @@ static int __init cnn_init(void)
 		tx_vir_buffer[i] = 0x00000000;
 	}
 	
-	printk(KERN_INFO "cnn_init: DMA memory reset.\n");
+	printk(KERN_INFO "[cnn_init] DMA memory reset.\n");
 	return platform_driver_register(&cnn_driver);
 
 	fail_4:
@@ -226,14 +263,14 @@ static int __init cnn_init(void)
 
 static void __exit cnn_exit(void)
 {
-    /* Reset DMA memory */
+    	/* Reset DMA memory */
 	int i = 0;
 	for (i = 0; i < MAX_PKT_LEN/2; i++) 
 	{
 		tx_vir_buffer[i] = 0x00000000;
 	}
 	
-	printk(KERN_INFO "cnn_exit: DMA memory reset\n");
+	printk(KERN_INFO "[cnn_exit] DMA memory reset\n");
 
 	/* Exit Device Module */
 	platform_driver_unregister(&cnn_driver);
@@ -243,7 +280,7 @@ static void __exit cnn_exit(void)
 	class_destroy(my_class);
 	unregister_chrdev_region(my_dev_id, 1);
 	dma_free_coherent(NULL, MAX_PKT_LEN, tx_vir_buffer, tx_phy_buffer);
-	printk(KERN_INFO "cnn_exit: Exit device module finished\"%s\".\n", DEVICE_NAME);
+	printk(KERN_INFO "[cnn_exit] Exit device module finished\"%s\".\n", DEVICE_NAME);
 }
 
 module_init(cnn_init);
@@ -261,16 +298,16 @@ int device_fsm = 0;
 
 static int cnn_probe(struct platform_device *pdev) 
 {
-    struct resource *r_mem;
-    int rc = 0;
+	struct resource *r_mem;
+	int rc = 0;
 
-    /* Get physical register address space from device tree */
-    r_mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-    if (!r_mem) 
-    {
-        printk(KERN_ALERT "cnn_probe: Failed to get reg resource.\n");
-        return -ENODEV;
-    }
+	/* Get physical register address space from device tree */
+	r_mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!r_mem) 
+	{
+	printk(KERN_ALERT "cnn_probe: Failed to get reg resource.\n");
+	return -ENODEV;
+	}
 
 	switch(device_fsm)
 	{
@@ -279,7 +316,7 @@ static int cnn_probe(struct platform_device *pdev)
 			cnn_p = (struct cnn_info *) kmalloc(sizeof(struct cnn_info), GFP_KERNEL);
 			if(!cnn_p) 
 			{
-				printk(KERN_ALERT "cnn_probe: Could not allocate CNN device\n");
+				printk(KERN_ALERT "[cnn_probe] Could not allocate CNN device\n");
 				return -ENOMEM;
 			}
 
@@ -290,7 +327,7 @@ static int cnn_probe(struct platform_device *pdev)
 			/* Reserve that memory space for this driver */
 			if(!request_mem_region(cnn_p->mem_start, cnn_p->mem_end - cnn_p->mem_start + 1,	DEVICE_NAME)) 
 			{
-				printk(KERN_ALERT "cnn_probe: Could not lock memory region at %p\n",(void *)cnn_p->mem_start);
+				printk(KERN_ALERT "[cnn_probe] Could not lock memory region at %p\n",(void *)cnn_p->mem_start);
 				rc = -EBUSY;
 				goto error1;
 			}
@@ -299,7 +336,7 @@ static int cnn_probe(struct platform_device *pdev)
 			cnn_p->base_addr = ioremap(cnn_p->mem_start, cnn_p->mem_end - cnn_p->mem_start + 1);
 			if (!cnn_p->base_addr) 
 			{
-				printk(KERN_ALERT "cnn_probe: Could not allocate memory\n");
+				printk(KERN_ALERT "[cnn_probe] Could not allocate memory\n");
 				rc = -EIO;
 				goto error2;
 			}
@@ -308,21 +345,21 @@ static int cnn_probe(struct platform_device *pdev)
 			cnn_p->irq_num = platform_get_irq(pdev, 0);
 			if(!cnn_p->irq_num)
 			{
-				printk(KERN_ERR "cnn_probe: Could not get IRQ resource\n");
+				printk(KERN_ERR "[cnn_probe] Could not get IRQ resource\n");
 				rc = -ENODEV;
 				goto error2;
 			}
 
 			if (request_irq(cnn_p->irq_num, cnn_isr, 0, DEVICE_NAME, NULL)) {
-				printk(KERN_ERR "cnn_probe: Could not register IRQ %d\n", cnn_p->irq_num);
+				printk(KERN_ERR "[cnn_probe] Could not register IRQ %d\n", cnn_p->irq_num);
 				return -EIO;
 				goto error3;
 			}
 			else {
-				printk(KERN_INFO "cnn_probe: Registered IRQ %d\n", cnn_p->irq_num);
+				printk(KERN_INFO "[cnn_probe] Registered IRQ %d\n", cnn_p->irq_num);
 			}
 
-			printk(KERN_NOTICE "cnn_probe: CNN platform driver registered - xlnx,cnn \n");
+			printk(KERN_NOTICE "[cnn_probe] CNN platform driver registered - xlnx,cnn \n");
 			++device_fsm;
 			return 0;
 
@@ -340,7 +377,7 @@ static int cnn_probe(struct platform_device *pdev)
 			dma_p = (struct cnn_info *) kmalloc(sizeof(struct cnn_info), GFP_KERNEL);
 			if(!cnn_p) 
 			{
-				printk(KERN_ALERT "cnn_probe: Could not allocate CNN device\n");
+				printk(KERN_ALERT "[cnn_probe] Could not allocate CNN device\n");
 				return -ENOMEM;
 			}
 
@@ -351,7 +388,7 @@ static int cnn_probe(struct platform_device *pdev)
 			/* Reserve that memory space for this driver */
 			if(!request_mem_region(dma_p->mem_start, dma_p->mem_end - dma_p->mem_start + 1,	DEVICE_NAME)) 
 			{
-				printk(KERN_ALERT "cnn_probe: Could not lock memory region at %p\n",(void *)dma_p->mem_start);
+				printk(KERN_ALERT "[cnn_probe] Could not lock memory region at %p\n",(void *)dma_p->mem_start);
 				rc = -EBUSY;
 				goto error4;
 			}
@@ -360,7 +397,7 @@ static int cnn_probe(struct platform_device *pdev)
 			dma_p->base_addr = ioremap(dma_p->mem_start, dma_p->mem_end - dma_p->mem_start + 1);
 			if (!dma_p->base_addr) 
 			{
-				printk(KERN_ALERT "cnn_probe: Could not allocate memory\n");
+				printk(KERN_ALERT "[cnn_probe] Could not allocate memory\n");
 				rc = -EIO;
 				goto error5;
 			}
@@ -369,24 +406,24 @@ static int cnn_probe(struct platform_device *pdev)
 			dma_p->irq_num = platform_get_irq(pdev, 0);
 			if(!dma_p->irq_num)
 			{
-				printk(KERN_ERR "cnn_probe: Could not get IRQ resource\n");
+				printk(KERN_ERR "[cnn_probe] Could not get IRQ resource\n");
 				rc = -ENODEV;
 				goto error5;
 			}
 
 			if (request_irq(dma_p->irq_num, dma_isr, 0, DEVICE_NAME, NULL)) {
-				printk(KERN_ERR "cnn_probe: Could not register IRQ %d\n", dma_p->irq_num);
+				printk(KERN_ERR "[cnn_probe] Could not register IRQ %d\n", dma_p->irq_num);
 				return -EIO;
 				goto error6;
 			}
 			else {
-				printk(KERN_INFO "cnn_probe: Registered IRQ %d\n", dma_p->irq_num);
+				printk(KERN_INFO "[cnn_probe] Registered IRQ %d\n", dma_p->irq_num);
 			}
 
 			/* INIT DMA */
 			dma_init(dma_p->base_addr);
 
-			printk(KERN_NOTICE "cnn_probe: CNN platform driver registered - xlnx,axi-dma \n");
+			printk(KERN_NOTICE "[cnn_probe] CNN platform driver registered - xlnx,axi-dma \n");
 			return 0;
 
 			error6:
@@ -399,7 +436,7 @@ static int cnn_probe(struct platform_device *pdev)
 		break;
 		
 		default:
-			printk(KERN_INFO "cnn_probe: Device FSM in illegal state.\n");
+			printk(KERN_INFO "[cnn_probe] Device FSM in illegal state.\n");
 			return -1;
 		break;
     }
@@ -407,6 +444,57 @@ static int cnn_probe(struct platform_device *pdev)
 
 static int cnn_remove(struct platform_device *pdev) 
 {
+	switch (device_fsm)
+	{
+	case 0: 
+		printk(KERN_ALERT "[cnn_remove] cnn_p device platform driver removed\n");
+		iowrite32(0, cnn_p->base_addr);
+		iounmap(cnn_p->base_addr);
+		release_mem_region(cnn_p->mem_start, cnn_p->mem_end - cnn_p->mem_start + 1);
+		kfree(cnn_p);
+	break;
+
+	case 1:
+		printk(KERN_ALERT "[cnn_remove] dma_p platform driver removed\n");
+		iowrite32(0, dma_p->base_addr);
+		iounmap(dma_p->base_addr);
+		release_mem_region(dma_p->mem_start, dma_p->mem_end - dma_p->mem_start + 1);
+		kfree(dma_p);
+		--device_fsm;
+	break;
+
+	default:
+		printk(KERN_INFO "[cnn_remove] Device FSM in illegal state. \n");
+		return -1;
+	}
+	
+	printk(KERN_INFO "[cnn_remove] Succesfully removed driver\n");
+	return 0;
+}
+
+/* -------------------------------------- */
+/* -------------MMAP FUNCTION------------ */
+/* -------------------------------------- */
+
+static int cnn_mmap(struct file *f, struct vm_area_struct *vma_s)
+{
+	int ret = 0;
+	long length = vma_s->vm_end - vma_s->vm_start;
+
+	printk(KERN_INFO "[cnn_dma_mmap] DMA TX Buffer is being memory mapped\n");
+
+	if(length > MAX_PKT_LEN)
+	{
+		return -EIO;
+		printk(KERN_ERR "[cnn_dma_mmap] Trying to mmap more space than it's allocated\n");
+	}
+
+	ret = dma_mmap_coherent(NULL, vma_s, tx_vir_buffer, tx_phy_buffer, length);
+	if(ret < 0)
+	{
+		printk(KERN_ERR "[cnn_dma_mmap] Memory map failed\n");
+		return ret;
+	}
 	return 0;
 }
 
@@ -416,12 +504,12 @@ static int cnn_remove(struct platform_device *pdev)
 
 int cnn_open(struct inode *pinode, struct file *pfile)
 {
-    return 0;
+	return 0;
 }
 
 int cnn_close(struct inode *pinode, struct file *pfile)
 {
-    return 0;
+	return 0;
 }
 
 
@@ -429,14 +517,116 @@ int cnn_close(struct inode *pinode, struct file *pfile)
 /* -------READ AND WRITE FUNCTIONS------- */
 /* -------------------------------------- */
 
-ssize_t cnn_read(struct file *pfile, char __user *buffer, size_t length, loff_t *offset)
+int read_fsm = 0;
+int write_fsm = 0;
+int call_counter = 0;
+
+ssize_t cnn_read(struct file *pfile, char __user *buf, size_t length, loff_t *offset)
 {
-    return 0;
+	
+	return 0;
 }
 
-ssize_t cnn_write(struct file *pfile, const char __user *buffer, size_t length, loff_t *offset)
+ssize_t cnn_write(struct file *pfile, const char __user *buf, size_t length, loff_t *offset)
 {
-    return 0;
+	char buff[BUFF_SIZE];
+	unsigned char bash_command[100];  
+	int ret = 0;
+	int input_param;
+	
+	// int minor = MINOR(pfile->f_inode->i_rdev);
+	
+	ret = copy_from_user(buff, buf, length);  
+	if(ret)
+	{
+		printk(KERN_WARNING "[cnn_write] Copy from user failed\n");
+		return -EFAULT;
+	}  
+	buff[length] = '\0';
+	
+	
+	/* 
+	 * Writing into a device is accomplished by a switch and fsm-style model:
+	 * First time writing into a device is considered start of classifying a picture, it is expected full picture 34*34*3 to be written into a file as an input
+	 * NOTE: At every writing into a file, input should already be padded and formated!
+	 *
+	 * IDEA: Call this function as many times as you have pixels, in oreder for sscanf to work properly
+	 * Internally keep track of how many times a function has been called in order to know if the full input has been complited or not.
+	 *
+	 * 
+	*/
+	switch(write_fsm)
+	{
+	/* Loading input weights for CONV0 into a DMA buffer */	
+	case 0 :
+		sscanf(buff, "%d", &input_param);
+		tx_vir_buffer[call_counter] = input_param;
+		call_counter++;
+		
+		if(call_counter == 864) 
+		{
+			call_counter = 0;
+			++write_fsm;
+		}
+	break;
+	
+	/* A total of 3*3*3*32 weights have been loaded, start IP and DMA to load weights for CONV0 */	
+	case 1:
+		/* Send IP command to load weights */
+		iowrite32(IP_COMMAND_LOAD_WEIGHTS0, cnn_p->base_addr); 
+			
+		/* Send DMA command to transfer input picture into IP */
+		dma_simple_write(tx_phy_buffer, 864, dma_p->base_addr);
+		
+		/* Wait for DMA to finish */
+		
+		++write_fsm; // PUT IT IN ISR? POS NOT, BECAUSE OF INTERACTION OF READ COMMAND
+	break;
+	
+	/* Loading input pixels into a buffer */
+	case 2:
+		sscanf(buff, "%d", &input_param);
+		tx_vir_buffer[call_counter] = input_param;
+		call_counter++;
+		
+		if(call_counter == 3468) 
+		{
+			call_counter = 0;
+			++write_fsm;
+		}
+	break;
+	
+	/* A total of 34*34*3 pixels have been loaded, start IP and DMA to load CONV0 input picture */
+	case 3:
+		/* Send IP command to load input picture */
+		iowrite32(IP_COMMAND_LOAD_CONV0_INPUT, cnn_p->base_addr); 
+		
+		/* Send DMA command to transfer input picture into IP */
+		dma_simple_write(tx_phy_buffer, 3468, dma_p->base_addr);
+		
+		/* Wait for DMA to finish */
+		
+		/* Start IP to start CONV0 */
+		iowrite32(IP_COMMAND_START_CONV0, cnn_p->base_addr); 
+		
+		/* Wait for IP to finish CONV0 ? */
+		
+	break;
+	
+	
+	case 4:
+	
+	break;
+	
+	case 5:
+	
+	break;
+	
+	default:
+	
+	break;
+	}
+	return 0;
 }
 
 

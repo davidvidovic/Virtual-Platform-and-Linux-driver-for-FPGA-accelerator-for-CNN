@@ -1,7 +1,8 @@
+CONFIG_MODULE_SIG=n
 # If KERNELRELEASE is defined, we've been invoked from
 # kernel build system and can use its language.
 ifneq ($(KERNELRELEASE),)
-	obj-m := cnn-driver.o
+	obj-m := driver.o
 # Otherwise we were called directly from the command
 # line; invoke the kernel build system.
 else

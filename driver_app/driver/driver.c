@@ -25,6 +25,8 @@
 /* ioremap */
 #include <linux/ioport.h>
 
+#include <asm/io.h>
+
 /* DMA headers */
 
 #include <linux/dma-mapping.h>
@@ -46,15 +48,19 @@ MODULE_DESCRIPTION("CNN IP core driver");
 #define BIAS_INPUT_LEN			128	
 
 #define CONV0_PICTURE_INPUT_LEN		34*34*3*2
-#define CONV0_WEIGHTS_INPUT_LEN		3*3*3*32
+#define CONV0_WEIGHTS_INPUT_LEN		3*3*3*32*2
+#define CONV0_PICTURE_OUTPUT_LEN	32*32*32*2
 
 #define CONV1_PICTURE_INPUT_LEN	 	18*18*32*2
-#define CONV1_WEIGHTS_INPUT_LEN		3*3*32*32/2
+#define CONV1_WEIGHTS_INPUT_LEN		3*3*32*32/2*2
+#define CONV1_PICTURE_OUTPUT_LEN	16*16*32*2
 
 #define CONV2_PICTURE_INPUT_LEN	 	10*10*32*2
-#define CONV2_WEIGHTS_INPUT_LEN		3*3*32*64/4
+#define CONV2_WEIGHTS_INPUT_LEN		3*3*32*64/4*2
+#define CONV2_PICTURE_OUTPUT_LEN	8*8*64*2
 
-#define MAX_PKT_LEN			CONV1_PICTURE_INPUT_LEN
+#define MAX_PKT_LEN			CONV0_PICTURE_OUTPUT_LEN
+
 
 #define IP_COMMAND_LOAD_BIAS		0x0001
 #define IP_COMMAND_LOAD_WEIGHTS0	0x0002
@@ -108,6 +114,9 @@ static void __exit cnn_exit(void);
 static int cnn_mmap(struct file *f, struct vm_area_struct *vma_s);
 static irqreturn_t cnn_isr(int irq, void*dev_id);
 static irqreturn_t dma_isr(int irq, void*dev_id);
+irq_handler_t cnn_handler_irq = &cnn_isr;
+irq_handler_t dma_handler_irq = &dma_isr;
+
 int dma_init(void __iomem *base_address);
 u32 dma_simple_write(dma_addr_t TxBufferPtr, u32 pkt_len, void __iomem *base_address); 
 u32 dma_simple_read(dma_addr_t TxBufferPtr, u32 pkt_len, void __iomem *base_address);
@@ -126,7 +135,8 @@ struct cnn_info
 
 dev_t my_dev_id;
 static struct class *my_class;
-static struct device *my_device;
+static struct device *my_device_cnn;
+static struct device *my_device_dma;
 static struct cdev *my_cdev;
 static struct cnn_info *dma_p = NULL;
 static struct cnn_info *cnn_p = NULL;
@@ -142,8 +152,8 @@ struct file_operations my_fops =
 };
 
 static struct of_device_id cnn_of_match[] = {
-	{ .compatible = "xlnx,cnn"},
-	{ .compatible = "xlnx,axi-dma", },
+	{ .compatible = "cnn_ip", },
+	{ .compatible = "dma", },
 	{ /* end of list */ },
 };
 
@@ -197,20 +207,20 @@ static int __init cnn_init(void)
 	printk(KERN_INFO "[cnn_init] Successful class chardev1 create!\n");
 
 	/* Secondly, device_create is used to create devices in a region. */
-	my_device = device_create(my_class, NULL, MKDEV(MAJOR(my_dev_id), 0), NULL, "xlnx,cnn");
-	if(my_device == NULL)
+	my_device_cnn = device_create(my_class, NULL, MKDEV(MAJOR(my_dev_id), 0), NULL, "cnn-ip");
+	if(my_device_cnn == NULL)
 	{
 		goto fail_1;
 	}
-	printk(KERN_INFO "[cnn_init] Device xlnx,cnn created\n");
+	printk(KERN_INFO "[cnn_init] Device cnn-ip created\n");
 
 
-	my_device = device_create(my_class, NULL, MKDEV(MAJOR(my_dev_id), 1), NULL, "xlnx,axi-dma");
-	if(my_device == NULL)
+	my_device_dma = device_create(my_class, NULL, MKDEV(MAJOR(my_dev_id), 1), NULL, "dma");
+	if(my_device_dma == NULL)
 	{
 		goto fail_2;
 	}
-	printk(KERN_INFO "[cnn_init] Device xlnx,axi-dma created\n");
+	printk(KERN_INFO "[cnn_init] Device dma created\n");
 
 	my_cdev = cdev_alloc();	
 	my_cdev->ops = &my_fops;
@@ -224,7 +234,18 @@ static int __init cnn_init(void)
 	printk(KERN_INFO "[cnn_init] Module init done\n");
 
 	/* Making sure that virtual addresses are mapped to physical addresses that are coherent */
-	tx_vir_buffer = dma_alloc_coherent(NULL, MAX_PKT_LEN, &tx_phy_buffer, GFP_DMA | GFP_KERNEL);
+	ret = dma_set_coherent_mask(my_device_dma, DMA_BIT_MASK(64));
+	if(ret < 0)
+	{
+		printk(KERN_WARNING "[cnn_init] DMA coherent mask not set!\n");
+	}
+	else
+	{
+		printk(KERN_INFO "[cnn_init] DMA coherent mask set\n");
+	}
+
+	tx_vir_buffer = dma_alloc_coherent(my_device_dma, 32*32*32*2, &tx_phy_buffer, GFP_KERNEL);
+	printk(KERN_INFO "[cnn_init] Virtual and physical addresses coherent starting at %x and ending at %x\n", tx_phy_buffer, tx_phy_buffer+(unsigned int)(32*32*32*2));
 	if(!tx_vir_buffer)
 	{
 		printk(KERN_ALERT "[cnn_init] Could not allocate dma_alloc_coherent for img");
@@ -232,10 +253,10 @@ static int __init cnn_init(void)
 	}
 	else
 	{
-		printk("cnn_init: Successfully allocated memory for dma transaction buffer\n");
+		printk("[cnn_init] Successfully allocated memory for dma transaction buffer\n");
 	}
 	
-	for (i = 0; i < MAX_PKT_LEN/2; i++)
+	for (i = 0; i < MAX_PKT_LEN/4; i++)
 	{
 		tx_vir_buffer[i] = 0x00000000;
 	}
@@ -262,7 +283,7 @@ static void __exit cnn_exit(void)
 {
     	/* Reset DMA memory */
 	int i = 0;
-	for (i = 0; i < MAX_PKT_LEN/2; i++) 
+	for (i = 0; i < MAX_PKT_LEN/4; i++) 
 	{
 		tx_vir_buffer[i] = 0x00000000;
 	}
@@ -276,7 +297,7 @@ static void __exit cnn_exit(void)
 	device_destroy(my_class, MKDEV(MAJOR(my_dev_id),1));
 	class_destroy(my_class);
 	unregister_chrdev_region(my_dev_id, 1);
-	dma_free_coherent(NULL, MAX_PKT_LEN, tx_vir_buffer, tx_phy_buffer);
+	dma_free_coherent(my_device_dma, MAX_PKT_LEN, tx_vir_buffer, tx_phy_buffer);
 	printk(KERN_INFO "[cnn_exit] Exit device module finished\"%s\".\n", DEVICE_NAME);
 }
 
@@ -351,7 +372,7 @@ static int cnn_probe(struct platform_device *pdev)
 			goto error2;
 		}
 
-		if (request_irq(cnn_p->irq_num, cnn_isr, 0, DEVICE_NAME, NULL)) {
+		if (request_irq(cnn_p->irq_num, cnn_handler_irq, 0, DEVICE_NAME, (void *)(cnn_handler_irq))) {
 			printk(KERN_ERR "[cnn_probe] Could not register IRQ %d\n", cnn_p->irq_num);
 			return -EIO;
 			goto error3;
@@ -360,7 +381,7 @@ static int cnn_probe(struct platform_device *pdev)
 			printk(KERN_INFO "[cnn_probe] Registered IRQ %d\n", cnn_p->irq_num);
 		}
 
-		printk(KERN_NOTICE "[cnn_probe] CNN platform driver registered - xlnx,cnn \n");
+		printk(KERN_NOTICE "[cnn_probe] CNN platform driver registered - cnn-ip \n");
 		++device_fsm;
 		return 0;
 
@@ -414,7 +435,7 @@ static int cnn_probe(struct platform_device *pdev)
 			goto error5;
 		}
 
-		if (request_irq(dma_p->irq_num, dma_isr, 0, DEVICE_NAME, NULL)) {
+		if (request_irq(dma_p->irq_num, dma_handler_irq, 0, DEVICE_NAME, (void *)dma_handler_irq)) {
 			printk(KERN_ERR "[cnn_probe] Could not register IRQ %d\n", dma_p->irq_num);
 			return -EIO;
 			goto error6;
@@ -426,7 +447,7 @@ static int cnn_probe(struct platform_device *pdev)
 		/* INIT DMA */
 		dma_init(dma_p->base_addr);
 
-		printk(KERN_NOTICE "[cnn_probe] CNN platform driver registered - xlnx,axi-dma \n");
+		printk(KERN_NOTICE "[cnn_probe] CNN platform driver registered - dma \n");
 		return 0;
 
 		error6:
@@ -508,6 +529,7 @@ ssize_t cnn_read(struct file *pfile, char __user *buf, size_t length, loff_t *of
 	case 0:
 		// NOTHING TO DO HERE
 		printk(KERN_WARNING "[cnn_read] Reading from CNN not allowed\n");
+		//asm("int $0x66");
 	break;
 	
 	/* Reading from DMA */
@@ -544,6 +566,7 @@ ssize_t cnn_write(struct file *pfile, const char __user *buf, size_t length, lof
 	{
 		/* Writing into CNN */
 		case 0:
+			printk(KERN_INFO "[cnn_write] Writing into cnn-ip");
 			sscanf(buff, "%d", &input_command);  
 			
 			/* Check if command is valid */
@@ -568,11 +591,12 @@ ssize_t cnn_write(struct file *pfile, const char __user *buf, size_t length, lof
 			
 			current_IP_command = input_command;
 			
-			printk(KERN_INFO "[cnn_write] Writing into CNN command %d\n", input_command);
+			printk(KERN_INFO "[cnn_write] Writing into CNN command %x\n", input_command);
 			
 			/* Write into CNN IP */
 			iowrite32((u32)input_command, cnn_p->base_addr);
 			
+			printk(KERN_INFO "[cnn_write] Successful write into CNN.\n");
 			
 			/* Start DMA to send data if LOAD command is issued */
 	
@@ -581,67 +605,90 @@ ssize_t cnn_write(struct file *pfile, const char __user *buf, size_t length, lof
 			/* Write command */
 			case IP_COMMAND_LOAD_BIAS:
 				dma_simple_write(tx_phy_buffer, BIAS_INPUT_LEN, dma_p->base_addr);
+				printk(KERN_INFO "[cnn_write] Starting DMA transaction: LOAD BIAS\n");
 			break;
 			
 			case IP_COMMAND_LOAD_WEIGHTS0:
 				dma_simple_write(tx_phy_buffer, CONV0_WEIGHTS_INPUT_LEN, dma_p->base_addr);
+				printk(KERN_INFO "[cnn_write] Starting DMA transaction: LOAD WEIGHTS0\n");
 			break;
 			
 			case IP_COMMAND_LOAD_CONV0_INPUT:
 				dma_simple_write(tx_phy_buffer, CONV0_PICTURE_INPUT_LEN, dma_p->base_addr);
+				printk(KERN_INFO "[cnn_write] Starting DMA transaction: LOAD INPUT PICTURE CONV0\n");
 			break;
 			
 			case IP_COMMAND_LOAD_WEIGHTS1:
 				dma_simple_write(tx_phy_buffer, CONV1_WEIGHTS_INPUT_LEN, dma_p->base_addr);
+				printk(KERN_INFO "[cnn_write] Starting DMA transaction: LOAD WEIGHTS1\n");
 			break;
 			
 			case IP_COMMAND_LOAD_CONV1_INPUT:
 				dma_simple_write(tx_phy_buffer, CONV1_PICTURE_INPUT_LEN, dma_p->base_addr);
+				printk(KERN_INFO "[cnn_write] Starting DMA transaction: LOAD INPUT PICTURE CONV1\n");
 			break;
 			
 			case IP_COMMAND_LOAD_WEIGHTS2:
 				dma_simple_write(tx_phy_buffer, CONV0_WEIGHTS_INPUT_LEN, dma_p->base_addr);
+				printk(KERN_INFO "[cnn_write] Starting DMA transaction: LOAD WEIGHTS2\n");
 			break;
 			
 			case IP_COMMAND_LOAD_CONV2_INPUT:
 				dma_simple_write(tx_phy_buffer, CONV0_PICTURE_INPUT_LEN, dma_p->base_addr);
+				printk(KERN_INFO "[cnn_write] Starting DMA transaction: LOAD INPUT PICTURE CONV2\n");
 			break;
 			
 			
 			/* Read command */
 			
 			case IP_COMMAND_READ_CONV0_OUTPUT:
-				dma_simple_read(tx_phy_buffer, CONV0_WEIGHTS_INPUT_LEN, dma_p->base_addr);
+				dma_simple_read(tx_phy_buffer, CONV0_PICTURE_OUTPUT_LEN, dma_p->base_addr);
+				printk(KERN_INFO "[cnn_write] Starting DMA transaction: READ CONV0 OUTPUT\n");
 			break;
 			
 			case IP_COMMAND_READ_CONV1_OUTPUT:
-				dma_simple_read(tx_phy_buffer, CONV1_PICTURE_INPUT_LEN, dma_p->base_addr);
+				dma_simple_read(tx_phy_buffer, CONV1_PICTURE_OUTPUT_LEN, dma_p->base_addr);
+				printk(KERN_INFO "[cnn_write] Starting DMA transaction: READ CONV1 OUTPUT\n");
 			break;
 			
 			case IP_COMMAND_READ_CONV2_OUTPUT:
-				dma_simple_read(tx_phy_buffer, CONV2_WEIGHTS_INPUT_LEN, dma_p->base_addr);
+				dma_simple_read(tx_phy_buffer, CONV2_PICTURE_OUTPUT_LEN, dma_p->base_addr);
+				printk(KERN_INFO "[cnn_write] Starting DMA transaction: READ CONV2 OUTPUT\n");
 			break;
 			
 			default:
 				// NOT A LOAD OR READ COMMAND
 			break;
 			}
-			
+	/*		
 			if(input_command != IP_COMMAND_RESET)
 			{
+				printk(KERN_INFO "[cnn_write] Waiting for IP to send interrupt signal\n");
 				while(!ip_process_over);
 				
 				if(input_command != IP_COMMAND_START_CONV0 &&
 				   input_command != IP_COMMAND_START_CONV1 &&
 				   input_command != IP_COMMAND_START_CONV2)
 				{
-					/* Wait for interrupt to occure - DMA to finish and IP to finish */
+					// Wait for interrupt to occure - DMA to finish and IP to finish
+					printk(KERN_INFO "Waiting for DMA to send interrupt signal\n");
 					while(!transaction_over);
 				
 				}
 			}
 			transaction_over = 0;
 			ip_process_over = 0;
+	*/
+		
+		u32 temp;
+		do
+		{
+			temp = ioread32(dma_p->base_addr + MM2S_STATUS_REGISTER);
+			temp &= 0x00001000;
+		} while(temp == 0);
+
+		printk(KERN_INFO "[cnn_write] DMA transaction finished\n");
+
 		break;
 		
 		/* Writing into DMA */
@@ -669,13 +716,13 @@ static int cnn_mmap(struct file *f, struct vm_area_struct *vma_s)
 
 	printk(KERN_INFO "[cnn_dma_mmap] DMA TX Buffer is being memory mapped\n");
 
-	if(length > MAX_PKT_LEN)
+	if(length > 32*32*32*2)
 	{
 		return -EIO;
 		printk(KERN_ERR "[cnn_dma_mmap] Trying to mmap more space than it's allocated\n");
 	}
 
-	ret = dma_mmap_coherent(NULL, vma_s, tx_vir_buffer, tx_phy_buffer, length);
+	ret = dma_mmap_coherent(my_device_dma, vma_s, tx_vir_buffer, tx_phy_buffer, length);
 	if(ret < 0)
 	{
 		printk(KERN_ERR "[cnn_dma_mmap] Memory map failed\n");
@@ -718,6 +765,9 @@ static irqreturn_t dma_isr(int irq, void*dev_id)
 	/* Tell rest of the code that interrupt has happened */
 	transaction_over = 1;
 	
+	printk(KERN_INFO "[dma_isr] Finished DMA transaction! Interrupt handeled\n");
+
+
 	return IRQ_HANDLED;
 }
 
@@ -725,6 +775,7 @@ static irqreturn_t cnn_isr(int irq, void*dev_id)
 {
 	ip_process_over = 1;
 	
+	printk(KERN_INFO "[cnn_isr] IP finished operation. Interrupt handeled\n");
 	return IRQ_HANDLED;
 }
 

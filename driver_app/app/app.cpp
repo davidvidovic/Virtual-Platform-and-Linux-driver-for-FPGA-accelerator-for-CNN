@@ -59,8 +59,8 @@ int main()
 	int *p;
 	uint16_t temp;
 	float fl_temp;
-	uint16_t picture1[10368];
-	uint16_t picture2[6400];
+	uint16_t picture_1[10368];
+	uint16_t picture_2[6400];
 
 	MaxPoolLayer *maxpool[3];
 	DenseLayer *dense_layer[2];
@@ -192,7 +192,7 @@ int main()
 		
 		image.clear();
 
-		for(int i = 0; i < 32768*2; i++)
+		for(int i = 0; i < 32768/2; i++)
 		{
 			temp = (uint16_t)((uint32_t)*(p+i) & 0x0000ffff);
 			fl_temp = castBinToFloat((int)temp);
@@ -210,9 +210,10 @@ int main()
 			cout << "Cannot close /dev/dma for write" << endl;
 			return -1;
 		}
+
 		
 		/* Maxpool for CONV0 output */
-/*
+
 		transform_1D_to_4D(image, image4D, CONV1_PICTURE_SIZE, CONV1_NUM_FILTERS);
 		output.clear();
 		output = maxpool[0]->forward_prop(image4D, {}); 
@@ -223,16 +224,14 @@ int main()
 		conv_input.clear();
 		for (long unsigned int i = 0; i < image.size(); ++i)
 		{
-			conv_input.push_back(image[i]);
+			conv_input.push_back(castFloatToBin(image[i]));
 		}
+
 		
 		conv_input = pad_img(conv_input, CONV2_PICTURE_SIZE, CONV2_NUM_CHANNELS);
 
 		conv_input = format_image(conv_input, CONV2_PADDED_PICTURE_SIZE, CONV2_NUM_CHANNELS);
 
-		for(int i = 0; i < conv_input.size(); i++) picture_1[i] = castFloatToBin(conv_input[i]);
-*/	
-		
 
 		/* Send input picture to CONV1 */
 		
@@ -332,7 +331,7 @@ int main()
 
 		image.clear();
 
-		for(int i = 0; i < 8192*2; i++)
+		for(int i = 0; i < 8192/2; i++)
 		{
 			temp = (uint16_t)((uint32_t)*(p+i) & 0x0000ffff);
 			fl_temp = castBinToFloat((int)temp);
@@ -364,14 +363,13 @@ int main()
 		conv_input.clear();
 		for (long unsigned int i = 0; i < image.size(); ++i)
 		{
-			conv_input.push_back(image[i]);
+			conv_input.push_back(castFloatToBin(image[i]));
 		}
 		
 		conv_input = pad_img(conv_input, CONV3_PICTURE_SIZE, CONV3_NUM_CHANNELS);
 
 		conv_input = format_image(conv_input, CONV3_PADDED_PICTURE_SIZE, CONV3_NUM_CHANNELS);
 
-		for(int i = 0; i < conv_input.size(); i++) picture_2[i] = castFloatToBin(conv_input[i]);
 */	
 
 		/* Send input picture to CONV2 */
@@ -514,6 +512,44 @@ int main()
 		write_ip(IP_COMMAND_START_CONV2);
 		usleep(50000);
 */
+
+		/* Read results */
+/*	
+		write_ip(IP_COMMAND_READ_CONV2_OUTPUT);
+		usleep(50000);	
+		fd = open("/dev/dma", O_RDWR | O_NDELAY);
+		if(fd < 0)
+		{
+			cout << "[app] Cannot open /dev/dma for write" << endl;
+			return -1;
+		}
+		p = (int *)mmap(0, 1024*2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		if(p == MAP_FAILED) cout << "MAP FAILED" << endl;
+	
+
+		image.clear();
+
+		for(int i = 0; i < 1024/2; i++)
+		{
+			temp = (uint16_t)((uint32_t)*(p+i) & 0x0000ffff);
+			fl_temp = castBinToFloat((int)temp);
+			image.push_back(fl_temp);
+
+			temp = (uint16_t)(((uint32_t)*(p+i) & 0xffff0000) >> 16);
+			fl_temp = castBinToFloat((int)temp);
+			image.push_back(fl_temp);
+		}
+
+		munmap(p, 1024*2);
+		close(fd);
+		if (fd < 0)
+		{
+			cout << "Cannot close /dev/dma for write" << endl;
+			return -1;
+		}
+*/
+
+
 
 		/* Maxpool for CONV2 output */
 /*

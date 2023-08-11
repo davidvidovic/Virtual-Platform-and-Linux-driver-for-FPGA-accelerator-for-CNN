@@ -3,7 +3,7 @@ CXX = g++
 CXXFLAGS = -std=c++11 -Wall
 
 # Source files and target executable
-SOURCES = app.cpp ../../specification/cpp_implementation/MaxPoolLayer.cpp ../../specification/cpp_implementation/denselayer.cpp
+SOURCES = app.cpp format_data.cpp ../../specification/cpp_implementation/MaxPoolLayer.cpp ../../specification/cpp_implementation/denselayer.cpp
 OBJECTS = $(SOURCES:.cpp=.o)
 EXECUTABLE = app
 

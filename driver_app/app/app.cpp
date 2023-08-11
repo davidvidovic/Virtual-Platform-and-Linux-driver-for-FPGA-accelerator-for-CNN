@@ -8,10 +8,12 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <cstdint>
 
 #include "../../specification/cpp_implementation/MaxPoolLayer.hpp"
 #include "../../specification/cpp_implementation/denselayer.hpp"
 #include "../../vp/TLM/addresses.hpp"
+#include "format_data.hpp"
 
 #include "bias.hpp"
 #include "picture.hpp"
@@ -36,20 +38,7 @@
 
 using namespace std;
 
-typedef vector<vector<vector<vector<float>>>> vector4D;
-typedef vector<vector<vector<float>>> vector3D;
-typedef vector<vector<float>> vector2D;
-typedef vector<float> vector1D;
-
-/* Functions declaration */
-
 void write_ip(int command);
-void transform_1D_to_4D(vector1D input_vector, vector4D& output_vector, int img_size, int num_of_channels);
-void transform_4D_to_1D(vector4D source_vector,vector1D& dest_vector,int img_size, int num_of_channels);
-void flatten(vector4D source_vector,vector2D &dest_vector,int img_size, int num_of_channels);
-vector<int> pad_img(vector<int> ram, int img_size, int num_of_channels);
-vector<int> format_image(vector<int> ram, int img_size, int num_of_channels);
-
 
 int main()
 {
@@ -64,7 +53,11 @@ int main()
 	int num_of_pictures = 1;
 	int fd;
 	int *p;
-	
+	uint16_t temp;
+	float fl_temp;
+	uint16_t picture1[10368];
+	uint16_t picture2[6400];
+
 	MaxPoolLayer *maxpool[3];
 	DenseLayer *dense_layer[2];
 		
@@ -77,15 +70,20 @@ int main()
 	dense_layer[1]->load_dense_layer("../../data/parametars/dense2/dense2_weights.txt", "../../data/parametars/dense2/dense2_bias.txt");
 	
 	/* ------------------------ */
+	/* --------Reset IP-------- */
+	/* ------------------------ */
+
+	write_ip(IP_COMMAND_RESET);
+	usleep(5000);	
+
+	/* ------------------------ */
 	/* Send biases at the start */
 	/* ------------------------ */
-	write_ip(IP_COMMAND_LOAD_BIAS);
 
-	
-	fd = open("/dev/cnn-ip", O_RDWR | O_NDELAY);
+	fd = open("/dev/dma", O_RDWR | O_NDELAY);
 	if(fd < 0)
 	{
-		cout << "[app] Cannot open /dev/cnn-ip for write" << endl;
+		cout << "[app] Cannot open /dev/dma for write" << endl;
 		return -1;
 	}
 	
@@ -98,6 +96,8 @@ int main()
 		cout << "[app] Cannot close /dev/dma for write" << endl;
 		return -1;
 	}
+
+	write_ip(1);
 	usleep(50000);
 	
 	cout << "Biases loaded\n" << endl;
@@ -112,62 +112,103 @@ int main()
 		cout << "Starting classification..." << endl;
 		
 		/* Send weights0 */
-	/*	
+		
+		fd = open("/dev/dma", O_RDWR | O_NDELAY);
+		if(fd < 0)
+		{
+			cout << "[app] Cannot open /dev/dma for write" << endl;
+			return -1;
+		}
+		
+		p = (int*)mmap(0, 864*2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		memcpy(p, input_weights0, 864*2);
+		munmap(p, 864*2);
+		close(fd);
+		if (fd < 0)
+		{
+			cout << "Cannot close /dev/dma for write" << endl;
+			return -1;
+		}
+		
 		write_ip(IP_COMMAND_LOAD_WEIGHTS0);
+		usleep(50000);
 		
-		p = (int*)mmap(0, 864*4, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-		memcpy(p, input_weights0, 864*4);
-		munmap(p, 864*4);
+		
+		/* Send input picture to CONV0 */
+		
+		
+		fd = open("/dev/dma", O_RDWR | O_NDELAY);
+		if(fd < 0)
+		{
+			cout << "[app] Cannot open /dev/dma for write" << endl;
+			return -1;
+		}
+		p = (int*)mmap(0, 3468*2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		memcpy(p, picture_0, 3468*2);
+		munmap(p, 3468*2);
 		close(fd);
 		if (fd < 0)
 		{
 			cout << "Cannot close /dev/dma for write" << endl;
 			return -1;
 		}
-		usleep(50000);
-	*/	
 		
-		/* Send picture */
-	/*	
 		write_ip(IP_COMMAND_LOAD_CONV0_INPUT);
-		
-		p = (int*)mmap(0, 3468*4, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-		memcpy(p, picture_0, 3468*4);
-		munmap(p, 3468*4);
-		close(fd);
-		if (fd < 0)
-		{
-			cout << "Cannot close /dev/dma for write" << endl;
-			return -1;
-		}
 		usleep(50000);
-	*/	
+	
 		
 		/* Start CONV0 */
-	/*	
+	
 		write_ip(IP_COMMAND_START_CONV0);
 		
-		usleep(100000);
-	*/	
+		usleep(1000000);
+		
 		
 		/* Read results */
-	/*
+	
 		write_ip(IP_COMMAND_READ_CONV0_OUTPUT);
+		usleep(50000);	
+		fd = open("/dev/dma", O_RDWR | O_NDELAY);
+		if(fd < 0)
+		{
+			cout << "[app] Cannot open /dev/dma for write" << endl;
+			return -1;
+		}
+		p = (int *)mmap(0, 32768*2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		if(p == MAP_FAILED) cout << "MAP FAILED" << endl;
 		
-		p = (int*)mmap(0, 32768*4, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-		memcpy(, , 32768*4);
-		munmap(p, 32768*4);
+/*
+ 		int cnt = 1;
+		for(int i = 0; i < 50; i++)
+		{
+			cout << cnt++ << ": " << (uint16_t)((uint32_t)*(p+i) & 0x0000ffff) << endl;
+			cout << cnt++ << ": " << (uint16_t)(((uint32_t)*(p+i) & 0xffff0000) >> 16)	<< endl;
+		}
+*/
+		
+		image.clear();
+
+		for(int i = 0; i < 32768*2; i++)
+		{
+			temp = (uint16_t)((uint32_t)*(p+i) & 0x0000ffff);
+			fl_temp = castBinToFloat((int)temp);
+			image.push_back(fl_temp);
+
+			temp = (uint16_t)(((uint32_t)*(p+i) & 0xffff0000) >> 16);
+			fl_temp = castBinToFloat((int)temp);
+			image.push_back(fl_temp);
+		}
+
+		munmap(p, 32768*2);
 		close(fd);
 		if (fd < 0)
 		{
 			cout << "Cannot close /dev/dma for write" << endl;
 			return -1;
 		}
-		usleep(50000);
-	*/
 		
 		/* Maxpool for CONV0 output */
-	/*
+/*
 		transform_1D_to_4D(image, image4D, CONV1_PICTURE_SIZE, CONV1_NUM_FILTERS);
 		output.clear();
 		output = maxpool[0]->forward_prop(image4D, {}); 
@@ -184,9 +225,310 @@ int main()
 		conv_input = pad_img(conv_input, CONV2_PICTURE_SIZE, CONV2_NUM_CHANNELS);
 
 		conv_input = format_image(conv_input, CONV2_PADDED_PICTURE_SIZE, CONV2_NUM_CHANNELS);
+
+		for(int i = 0; i < conv_input.size(); i++) picture_1[i] = castFloatToBin(conv_input[i]);
+*/	
 		
+
+		/* Send input picture to CONV1 */
 		
-	*/
+/*
+		fd = open("/dev/dma", O_RDWR | O_NDELAY);
+		if(fd < 0)
+		{
+			cout << "[app] Cannot open /dev/dma for write" << endl;
+			return -1;
+		}
+		p = (int*)mmap(0, 10368*2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		memcpy(p, picture_1, 10368*2);
+		munmap(p, 10368*2);
+		close(fd);
+		if (fd < 0)
+		{
+			cout << "Cannot close /dev/dma for write" << endl;
+			return -1;
+		}
+		
+		write_ip(IP_COMMAND_LOAD_CONV1_INPUT);
+		usleep(50000);
+*/
+
+
+		/* Send 1/2 of weights1 */
+/*		
+		fd = open("/dev/dma", O_RDWR | O_NDELAY);
+		if(fd < 0)
+		{
+			cout << "[app] Cannot open /dev/dma for write" << endl;
+			return -1;
+		}
+		
+		p = (int*)mmap(0, 4608*2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		memcpy(p, input_weights1_0, 4608*2);
+		munmap(p, 4608*2);
+		close(fd);
+		if (fd < 0)
+		{
+			cout << "Cannot close /dev/dma for write" << endl;
+			return -1;
+		}
+		
+		write_ip(IP_COMMAND_LOAD_WEIGHTS1);
+		usleep(50000);
+*/
+
+		/* Start 1/2 of CONV1 */
+/*
+		write_ip(IP_COMMAND_START_CONV1);
+		usleep(50000);
+*/
+
+		/* Send 2/2 of weights1 */
+/*		
+		fd = open("/dev/dma", O_RDWR | O_NDELAY);
+		if(fd < 0)
+		{
+			cout << "[app] Cannot open /dev/dma for write" << endl;
+			return -1;
+		}
+		
+		p = (int*)mmap(0, 4608*2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		memcpy(p, input_weights1_1, 4608*2);
+		munmap(p, 4608*2);
+		close(fd);
+		if (fd < 0)
+		{
+			cout << "Cannot close /dev/dma for write" << endl;
+			return -1;
+		}
+		
+		write_ip(IP_COMMAND_LOAD_WEIGHTS1);
+		usleep(50000);
+*/
+
+		/* Start 2/2 of CONV1 */
+/*
+		write_ip(IP_COMMAND_START_CONV1);
+		usleep(50000);
+*/
+
+		/* Read results */
+/*	
+		write_ip(IP_COMMAND_READ_CONV1_OUTPUT);
+		usleep(50000);	
+		fd = open("/dev/dma", O_RDWR | O_NDELAY);
+		if(fd < 0)
+		{
+			cout << "[app] Cannot open /dev/dma for write" << endl;
+			return -1;
+		}
+		p = (int *)mmap(0, 8192*2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		if(p == MAP_FAILED) cout << "MAP FAILED" << endl;
+	
+
+		image.clear();
+
+		for(int i = 0; i < 8192*2; i++)
+		{
+			temp = (uint16_t)((uint32_t)*(p+i) & 0x0000ffff);
+			fl_temp = castBinToFloat((int)temp);
+			image.push_back(fl_temp);
+
+			temp = (uint16_t)(((uint32_t)*(p+i) & 0xffff0000) >> 16);
+			fl_temp = castBinToFloat((int)temp);
+			image.push_back(fl_temp);
+		}
+
+		munmap(p, 8192*2);
+		close(fd);
+		if (fd < 0)
+		{
+			cout << "Cannot close /dev/dma for write" << endl;
+			return -1;
+		}
+*/
+
+		/* Maxpool for CONV1 output */
+/*
+		transform_1D_to_4D(image, image4D, CONV2_PICTURE_SIZE, CONV2_NUM_FILTERS);
+		output.clear();
+		output = maxpool[1]->forward_prop(image4D, {}); 
+
+		transform_4D_to_1D(output, image, CONV2_PICTURE_SIZE/2, CONV2_NUM_FILTERS);
+		
+		// Transforming vector<float> to vector<int>
+		conv_input.clear();
+		for (long unsigned int i = 0; i < image.size(); ++i)
+		{
+			conv_input.push_back(image[i]);
+		}
+		
+		conv_input = pad_img(conv_input, CONV3_PICTURE_SIZE, CONV3_NUM_CHANNELS);
+
+		conv_input = format_image(conv_input, CONV3_PADDED_PICTURE_SIZE, CONV3_NUM_CHANNELS);
+
+		for(int i = 0; i < conv_input.size(); i++) picture_2[i] = castFloatToBin(conv_input[i]);
+*/	
+
+		/* Send input picture to CONV2 */
+		
+/*
+		fd = open("/dev/dma", O_RDWR | O_NDELAY);
+		if(fd < 0)
+		{
+			cout << "[app] Cannot open /dev/dma for write" << endl;
+			return -1;
+		}
+		p = (int*)mmap(0, 6400*2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		memcpy(p, picture_2, 6400*2);
+		munmap(p, 6400*2);
+		close(fd);
+		if (fd < 0)
+		{
+			cout << "Cannot close /dev/dma for write" << endl;
+			return -1;
+		}
+		
+		write_ip(IP_COMMAND_LOAD_CONV2_INPUT);
+		usleep(50000);
+*/
+
+
+		/* Send 1/4 of weights2 */
+/*		
+		fd = open("/dev/dma", O_RDWR | O_NDELAY);
+		if(fd < 0)
+		{
+			cout << "[app] Cannot open /dev/dma for write" << endl;
+			return -1;
+		}
+		
+		p = (int*)mmap(0, 4608*2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		memcpy(p, input_weights2_0, 4608*2);
+		munmap(p, 4608*2);
+		close(fd);
+		if (fd < 0)
+		{
+			cout << "Cannot close /dev/dma for write" << endl;
+			return -1;
+		}
+		
+		write_ip(IP_COMMAND_LOAD_WEIGHTS2);
+		usleep(50000);
+*/
+
+		/* Start 1/4 of CONV2 */
+/*
+		write_ip(IP_COMMAND_START_CONV2);
+		usleep(50000);
+*/
+
+		/* Send 2/4 of weights2 */
+/*		
+		fd = open("/dev/dma", O_RDWR | O_NDELAY);
+		if(fd < 0)
+		{
+			cout << "[app] Cannot open /dev/dma for write" << endl;
+			return -1;
+		}
+		
+		p = (int*)mmap(0, 4608*2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		memcpy(p, input_weights2_1, 4608*2);
+		munmap(p, 4608*2);
+		close(fd);
+		if (fd < 0)
+		{
+			cout << "Cannot close /dev/dma for write" << endl;
+			return -1;
+		}
+		
+		write_ip(IP_COMMAND_LOAD_WEIGHTS2);
+		usleep(50000);
+*/
+
+		/* Start 2/4 of CONV2 */
+/*
+		write_ip(IP_COMMAND_START_CONV2);
+		usleep(50000);
+*/
+
+
+		/* Send 3/4 of weights2 */
+/*		
+		fd = open("/dev/dma", O_RDWR | O_NDELAY);
+		if(fd < 0)
+		{
+			cout << "[app] Cannot open /dev/dma for write" << endl;
+			return -1;
+		}
+		
+		p = (int*)mmap(0, 4608*2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		memcpy(p, input_weights2_2, 4608*2);
+		munmap(p, 4608*2);
+		close(fd);
+		if (fd < 0)
+		{
+			cout << "Cannot close /dev/dma for write" << endl;
+			return -1;
+		}
+		
+		write_ip(IP_COMMAND_LOAD_WEIGHTS2);
+		usleep(50000);
+*/
+
+		/* Start 3/4 of CONV2 */
+/*
+		write_ip(IP_COMMAND_START_CONV2);
+		usleep(50000);
+*/
+
+		/* Send 4/4 of weights2 */
+/*		
+		fd = open("/dev/dma", O_RDWR | O_NDELAY);
+		if(fd < 0)
+		{
+			cout << "[app] Cannot open /dev/dma for write" << endl;
+			return -1;
+		}
+		
+		p = (int*)mmap(0, 4608*2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		memcpy(p, input_weights2_3, 4608*2);
+		munmap(p, 4608*2);
+		close(fd);
+		if (fd < 0)
+		{
+			cout << "Cannot close /dev/dma for write" << endl;
+			return -1;
+		}
+		
+		write_ip(IP_COMMAND_LOAD_WEIGHTS2);
+		usleep(50000);
+*/
+
+		/* Start 4/4 of CONV2 */
+/*
+		write_ip(IP_COMMAND_START_CONV2);
+		usleep(50000);
+*/
+
+		/* Maxpool for CONV2 output */
+/*
+		transform_1D_to_4D(image, image4D, CONV3_PICTURE_SIZE, CONV3_NUM_FILTERS);
+		output.clear();
+		output = maxpool[2]->forward_prop(image4D, {}); 
+
+		flatten(output,dense1_input,CONV3_PICTURE_SIZE/2,CONV3_NUM_FILTERS);
+
+		dense1_output=dense_layer[0]->forward_prop(dense1_input);
+		dense2_output=dense_layer[1]->forward_prop(dense1_output);
+
+		cout << "Picture 0 results: " << endl;
+		for (int i = 0; i < 10; ++i)
+		{
+			cout << dense2_output[0][i] << endl;
+		}
+*/
+
 	}
 	
 	
@@ -198,140 +540,10 @@ void write_ip(int command)
 {
 	FILE *cnn_file;
 	cnn_file = fopen("/dev/cnn-ip", "w");
-	if(cnn_file < 0) cout << "[app] Could not open /dev/cnn-ip" << endl;
+	if(cnn_file == NULL) cout << "[app] Could not open /dev/cnn-ip" << endl;
 	else cout << "[app] Opened /dev/cnn-ip" << endl;
 
 	fprintf(cnn_file, "%d\n", command);
-	if(fclose(cnn_file)) cout << "[app] Cannot close /dec/cnn-ip" << endl;
+	if(fclose(cnn_file)) cout << "[app] Cannot close /dev/cnn-ip" << endl;
 	else cout << "[app] Successfully closed /dev/cnn-ip" << endl;
-}
-
-void flatten(vector4D source_vector,vector2D &dest_vector,int img_size, int num_of_channels)
-{
-	dest_vector.clear();
-	vector1D tmp;
-	for (int row = 0; row < img_size; ++row)
-	{	
-		for (int column = 0; column < img_size; ++column)
-		{
-			for (int channel = 0; channel < num_of_channels; ++channel)
-			{
-				tmp.push_back(source_vector[0][row][column][channel]);
-			}
-		}
-	}
-	dest_vector.push_back(tmp);
-}
-
-void transform_1D_to_4D(vector1D input_vector, vector4D& output_vector, int img_size, int num_of_channels)
-{
-	output_vector.clear();
-	vector3D rows;
-	for (int row = 0; row < img_size; ++row)
-	{	
-		vector2D columns;
-		for (int column = 0; column < img_size; ++column)
-		{
-			vector1D channels; 
-			for (int channel = 0; channel < num_of_channels; ++channel)
-			{
-				channels.push_back(input_vector[channel * img_size*img_size + column + row * img_size]);
-			}
-			columns.push_back(channels);
-		}
-		rows.push_back(columns);
-	}
-	output_vector.push_back(rows);
-}
-
-void transform_4D_to_1D(vector4D source_vector, vector1D& dest_vector,int img_size, int num_of_channels)
-{
-	dest_vector.clear();
-	for (int channel = 0; channel < num_of_channels; ++channel)
-	{	
-		for (int row = 0; row < img_size; ++row)
-		{
-			for (int column = 0; column < img_size; ++column)
-			{
-				dest_vector.push_back(source_vector[0][row][column][channel]);
-			}
-		}
-	}
-}
-
-vector<int> pad_img(vector<int> ram, int img_size, int num_of_channels)
-{
-	for(int channel = 0 ; channel < num_of_channels; channel++)
-    	{
-			// Firstly, zeros are emplaced for the first padded row (image_size(one row) + 2 for the edges)
-	        for (int i = 0; i < img_size+2; i++)
-	        {
-	        	ram.emplace((ram.begin() + (channel)*(img_size+2)*(img_size+2) + i), 0);
-	        }
-
-			// Secondly, zeros are added to each row's edge
-	        for(int rows = 1; rows < img_size + 1; rows++)
-	        {
-				// pos1 calulates the position to insert the left-most zero in each row (left edge)
-				// Component "(channel)*(img_size+2)*(img_size+2)" refers to the size of the channel
-				// Component "rows*img_size" refers to the number of rows that have been padded on the current channel
-				// Component "rows*2" takes into account the number of edge pixels that have been added (padded) on the current channel
-	        	int pos1 = (channel)*(img_size+2)*(img_size+2) + rows*img_size + rows*2;
-				// pos2 calulates the position to insert the right-most zero in each row (right edge)
-	        	int pos2 = (channel)*(img_size+2)*(img_size+2) + rows*img_size + rows*2 + 1 + img_size;
-	        	ram.emplace((ram.begin() + pos1), 0);
-	        	ram.emplace((ram.begin() + pos2), 0);
-	        }
-
-			// Finally, zeros are pushed back as we fill up the final row of the padded image (plus 2 for edges)
-	        for (int i = 0; i < img_size + 2; i++)
-	        {
-	        	ram.emplace((ram.begin() + ((channel)*(img_size+2)*(img_size+2)) + (img_size+2)*(img_size+1) + i), 0);
-	        }
-    	}
-    	
-    	return ram;
-}
-
-vector<int> format_image(vector<int> ram, int img_size, int num_of_channels)
-{
-	vector <int> temp_ram;
-
-	temp_ram.clear();
-	
-	for(int i = 0; i < img_size; i++)
-	{
-		for(int j = 0; j < num_of_channels; j++)
-		{
-			for(int k = 0; k < 3; k++)
-			{
-				temp_ram.push_back(ram[i + j * img_size * img_size + k * img_size]);
-			}
-		}
-	}
-	
-	for(int i = 3; i < img_size; i++)
-	{
-		for(int j = 0; j < img_size; j++)
-		{
-			for(int k = 0; k < num_of_channels; k++)
-			{
-				temp_ram.push_back(ram[j + k * img_size * img_size + i * img_size]);
-			}
-		}
-	}
-
-	ram.clear();
-	//ofstream results_file;
-	//results_file.open("../../data/picture1_formated.txt");
-	for(int i = 0; i < temp_ram.size(); i++) 
-	{
-		ram.push_back(temp_ram[i]);
-		//results_file << ram[ram.size() - 1] << endl;
-
-
-	}
-
-	//results_file.close();
-	return ram;
 }

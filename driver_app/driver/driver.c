@@ -13,18 +13,12 @@
 #include <linux/uaccess.h>
 #include <linux/errno.h>
 #include <linux/device.h>
-
-/* iowrite ioread */
+#include <linux/delay.h>
 #include <linux/io.h>
-/* kmalloc kfree */
 #include <linux/slab.h>
-/* platform driver */
 #include <linux/platform_device.h>
-/* of_match_table */
 #include <linux/of.h>
-/* ioremap */
 #include <linux/ioport.h>
-
 #include <asm/io.h>
 
 /* DMA headers */
@@ -118,8 +112,8 @@ irq_handler_t cnn_handler_irq = &cnn_isr;
 irq_handler_t dma_handler_irq = &dma_isr;
 
 int dma_init(void __iomem *base_address);
-u32 dma_simple_write(dma_addr_t TxBufferPtr, u32 pkt_len, void __iomem *base_address); 
-u32 dma_simple_read(dma_addr_t TxBufferPtr, u32 pkt_len, void __iomem *base_address);
+unsigned int dma_simple_write(dma_addr_t TxBufferPtr, unsigned int pkt_len, void __iomem *base_address); 
+unsigned int dma_simple_read(dma_addr_t TxBufferPtr, unsigned int pkt_len, void __iomem *base_address);
 
 /* -------------------------------------- */
 /* -----------GLOBAL VARIABLES----------- */
@@ -171,7 +165,7 @@ static struct platform_driver cnn_driver = {
 };
 
 dma_addr_t tx_phy_buffer;
-u32 *tx_vir_buffer;		// SHOULD BE 16?
+u16 *tx_vir_buffer;		// SHOULD BE 16?
 
 /* -------------------------------------- */
 /* -------INIT AND EXIT FUNCTIONS-------- */
@@ -225,7 +219,7 @@ static int __init cnn_init(void)
 	my_cdev = cdev_alloc();	
 	my_cdev->ops = &my_fops;
 	my_cdev->owner = THIS_MODULE;
-	ret = cdev_add(my_cdev, my_dev_id, 1);
+	ret = cdev_add(my_cdev, my_dev_id, 2);
 	if(ret)
 	{
 		printk(KERN_ERR "[cnn_init] Failed to add cdev\n");
@@ -245,7 +239,7 @@ static int __init cnn_init(void)
 	}
 
 	tx_vir_buffer = dma_alloc_coherent(my_device_dma, 32*32*32*2, &tx_phy_buffer, GFP_KERNEL);
-	printk(KERN_INFO "[cnn_init] Virtual and physical addresses coherent starting at %x and ending at %x\n", tx_phy_buffer, tx_phy_buffer+(unsigned int)(32*32*32*2));
+	printk(KERN_INFO "[cnn_init] Virtual and physical addresses coherent starting at %x and ending at %x\n", tx_phy_buffer, tx_phy_buffer+(uint)(32*32*32*2));
 	if(!tx_vir_buffer)
 	{
 		printk(KERN_ALERT "[cnn_init] Could not allocate dma_alloc_coherent for img");
@@ -273,7 +267,7 @@ static int __init cnn_init(void)
 	fail_1:
 		class_destroy(my_class);
 	fail_0:
-		unregister_chrdev_region(my_dev_id, 1);
+		unregister_chrdev_region(my_dev_id, 2);
 	return -1;
 } 
 
@@ -296,7 +290,7 @@ static void __exit cnn_exit(void)
 	device_destroy(my_class, MKDEV(MAJOR(my_dev_id),0));
 	device_destroy(my_class, MKDEV(MAJOR(my_dev_id),1));
 	class_destroy(my_class);
-	unregister_chrdev_region(my_dev_id, 1);
+	unregister_chrdev_region(my_dev_id, 2);
 	dma_free_coherent(my_device_dma, MAX_PKT_LEN, tx_vir_buffer, tx_phy_buffer);
 	printk(KERN_INFO "[cnn_exit] Exit device module finished\"%s\".\n", DEVICE_NAME);
 }
@@ -318,20 +312,33 @@ static int cnn_probe(struct platform_device *pdev)
 {
 	struct resource *r_mem;
 	int rc = 0;
-	
-	printk(KERN_ALERT "[cnn_probe] Starting probing device...\n");
+	const char *comp = of_get_property(pdev->dev.of_node, "compatible", NULL);
+	if(comp) printk(KERN_INFO "Probing %s\n", comp);
+	else printk(KERN_INFO "Not found\n");
 
+	if(comp == "dma") device_fsm = 0;
+	if(comp == "cnn_ip") device_fsm = 1;
 	/* Get physical register address space from device tree */
-	r_mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+/*
+	 * r_mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!r_mem) 
 	{
 		printk(KERN_ALERT "cnn_probe: Failed to get reg resource.\n");
 		return -ENODEV;
 	}
-
+*/
 	switch(device_fsm)
 	{
-	case 0:
+	case 1:
+		
+		/* Get physical register address space from device tree */
+		r_mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+		if(!r_mem)
+		{
+			printk(KERN_ALERT "cnn_probe: Failed to get reg resource.\n");
+			return -ENODEV;
+		}
+		
 		printk(KERN_ALERT "[cnn_probe] Probing cnn_p\n");
 		
 		/* Allocate memory space for structure cnn_info */ 
@@ -363,6 +370,8 @@ static int cnn_probe(struct platform_device *pdev)
 			goto error2;
 		}
 		
+		printk(KERN_INFO "[cnn_probe] cnn-ip base address start at %x\n", cnn_p->base_addr);
+			
 		/* Get irq number */
 		cnn_p->irq_num = platform_get_irq(pdev, 0);
 		if(!cnn_p->irq_num)
@@ -372,7 +381,7 @@ static int cnn_probe(struct platform_device *pdev)
 			goto error2;
 		}
 
-		if (request_irq(cnn_p->irq_num, cnn_handler_irq, 0, DEVICE_NAME, (void *)(cnn_handler_irq))) {
+		if (request_irq(cnn_p->irq_num, cnn_isr, 0, DEVICE_NAME, (void *)(cnn_handler_irq))) {
 			printk(KERN_ERR "[cnn_probe] Could not register IRQ %d\n", cnn_p->irq_num);
 			return -EIO;
 			goto error3;
@@ -380,9 +389,12 @@ static int cnn_probe(struct platform_device *pdev)
 		else {
 			printk(KERN_INFO "[cnn_probe] Registered IRQ %d\n", cnn_p->irq_num);
 		}
+		
+		iowrite32(IP_COMMAND_RESET, cnn_p->base_addr);
+		// udelay(1000);
+		printk(KERN_INFO "[cnn_probe] CNN IP reset\n");
 
 		printk(KERN_NOTICE "[cnn_probe] CNN platform driver registered - cnn-ip \n");
-		++device_fsm;
 		return 0;
 
 		error3:
@@ -394,12 +406,20 @@ static int cnn_probe(struct platform_device *pdev)
 			return rc;			
 	break;
 	
-	case 1:
+	case 0:
+		
+		r_mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+		if(!r_mem)
+		{
+			printk(KERN_ALERT "cnn_probe: Failed to get reg resource.\n");
+			return -ENODEV;
+		}
+
 		printk(KERN_ALERT "[cnn_probe] Probing dma_p\n");
 		
 		/* Allocate memory space for structure cnn_info */ 
 		dma_p = (struct cnn_info *) kmalloc(sizeof(struct cnn_info), GFP_KERNEL);
-		if(!cnn_p) 
+		if(!dma_p) 
 		{
 			printk(KERN_ALERT "[cnn_probe] Could not allocate CNN device\n");
 			return -ENOMEM;
@@ -426,6 +446,8 @@ static int cnn_probe(struct platform_device *pdev)
 			goto error5;
 		}
 		
+		printk(KERN_INFO "[cnn_probe] dma base address start at %x\n", dma_p->base_addr);
+		
 		/* Get irq number */
 		dma_p->irq_num = platform_get_irq(pdev, 0);
 		if(!dma_p->irq_num)
@@ -435,7 +457,7 @@ static int cnn_probe(struct platform_device *pdev)
 			goto error5;
 		}
 
-		if (request_irq(dma_p->irq_num, dma_handler_irq, 0, DEVICE_NAME, (void *)dma_handler_irq)) {
+		if (request_irq(dma_p->irq_num, dma_isr, 0, DEVICE_NAME, (void *)dma_handler_irq)) {
 			printk(KERN_ERR "[cnn_probe] Could not register IRQ %d\n", dma_p->irq_num);
 			return -EIO;
 			goto error6;
@@ -446,8 +468,10 @@ static int cnn_probe(struct platform_device *pdev)
 
 		/* INIT DMA */
 		dma_init(dma_p->base_addr);
-
-		printk(KERN_NOTICE "[cnn_probe] CNN platform driver registered - dma \n");
+		
+		printk(KERN_NOTICE "[cnn_probe] CNN platform driver registered - dma\n");
+		
+		++device_fsm;
 		return 0;
 
 		error6:
@@ -473,6 +497,8 @@ static int cnn_remove(struct platform_device *pdev)
 	case 0: 
 		printk(KERN_ALERT "[cnn_remove] cnn_p device platform driver removed\n");
 		// iowrite32(0, cnn_p->base_addr);
+		free_irq(cnn_p->irq_num, NULL);
+		printk(KERN_INFO "[cnn_remove] IRQ number for cnn free\n");
 		iounmap(cnn_p->base_addr);
 		release_mem_region(cnn_p->mem_start, cnn_p->mem_end - cnn_p->mem_start + 1);
 		kfree(cnn_p);
@@ -481,6 +507,8 @@ static int cnn_remove(struct platform_device *pdev)
 	case 1:
 		printk(KERN_ALERT "[cnn_remove] dma_p platform driver removed\n");
 		// iowrite32(0, dma_p->base_addr);
+		free_irq(dma_p->irq_num, NULL);
+		printk(KERN_INFO "[cnn_remove] IRQ number for dma free\n");
 		iounmap(dma_p->base_addr);
 		release_mem_region(dma_p->mem_start, dma_p->mem_end - dma_p->mem_start + 1);
 		kfree(dma_p);
@@ -522,14 +550,14 @@ int ip_process_over = 0;
 ssize_t cnn_read(struct file *pfile, char __user *buf, size_t length, loff_t *offset)
 {		
 	int minor = MINOR(pfile->f_inode->i_rdev);
-	
+
 	switch(minor)
 	{
 	/* Reading from CNN */
 	case 0:
 		// NOTHING TO DO HERE
 		printk(KERN_WARNING "[cnn_read] Reading from CNN not allowed\n");
-		//asm("int $0x66");
+		
 	break;
 	
 	/* Reading from DMA */
@@ -551,7 +579,8 @@ ssize_t cnn_write(struct file *pfile, const char __user *buf, size_t length, lof
 	char buff[BUFF_SIZE]; 
 	int ret = 0;
 	int input_command;
-	
+	u32 temp;
+
 	int minor = MINOR(pfile->f_inode->i_rdev);
 	
 	ret = copy_from_user(buff, buf, length);  
@@ -570,6 +599,7 @@ ssize_t cnn_write(struct file *pfile, const char __user *buf, size_t length, lof
 			sscanf(buff, "%d", &input_command);  
 			
 			/* Check if command is valid */
+	
 			if(input_command != IP_COMMAND_LOAD_BIAS 		&&
 			   input_command != IP_COMMAND_LOAD_WEIGHTS0 		&&
 			   input_command != IP_COMMAND_LOAD_CONV0_INPUT 	&&
@@ -588,21 +618,29 @@ ssize_t cnn_write(struct file *pfile, const char __user *buf, size_t length, lof
 				printk(KERN_WARNING "[cnn_write] Wrong CNN command! %d\n", input_command);
 				return 0;
 			}
-			
-			current_IP_command = input_command;
-			
-			printk(KERN_INFO "[cnn_write] Writing into CNN command %x\n", input_command);
+		
 			
 			/* Write into CNN IP */
+			ip_process_over = 1;
 			iowrite32((u32)input_command, cnn_p->base_addr);
 			
-			printk(KERN_INFO "[cnn_write] Successful write into CNN.\n");
+
+			transaction_over = 1;
 			
-			/* Start DMA to send data if LOAD command is issued */
-	
-			switch(current_IP_command)
+		/*	do
 			{
-			/* Write command */
+				temp = ioread32(dma_p->base_addr + 4);
+				temp = temp & 0x00001000;
+				printk(KERN_INFO "Waiting for DMA...\n");
+			} while(!temp);
+		*/
+					
+			printk(KERN_INFO "[cnn_write] Successful write into CNN.\n");
+			/* Start DMA to send data if LOAD command is issued */
+
+			switch(input_command)
+			{
+			// Write command 
 			case IP_COMMAND_LOAD_BIAS:
 				dma_simple_write(tx_phy_buffer, BIAS_INPUT_LEN, dma_p->base_addr);
 				printk(KERN_INFO "[cnn_write] Starting DMA transaction: LOAD BIAS\n");
@@ -639,7 +677,7 @@ ssize_t cnn_write(struct file *pfile, const char __user *buf, size_t length, lof
 			break;
 			
 			
-			/* Read command */
+			// Read command 
 			
 			case IP_COMMAND_READ_CONV0_OUTPUT:
 				dma_simple_read(tx_phy_buffer, CONV0_PICTURE_OUTPUT_LEN, dma_p->base_addr);
@@ -660,7 +698,7 @@ ssize_t cnn_write(struct file *pfile, const char __user *buf, size_t length, lof
 				// NOT A LOAD OR READ COMMAND
 			break;
 			}
-	/*		
+/*			
 			if(input_command != IP_COMMAND_RESET)
 			{
 				printk(KERN_INFO "[cnn_write] Waiting for IP to send interrupt signal\n");
@@ -678,17 +716,7 @@ ssize_t cnn_write(struct file *pfile, const char __user *buf, size_t length, lof
 			}
 			transaction_over = 0;
 			ip_process_over = 0;
-	*/
-		
-		u32 temp;
-		do
-		{
-			temp = ioread32(dma_p->base_addr + MM2S_STATUS_REGISTER);
-			temp &= 0x00001000;
-		} while(temp == 0);
-
-		printk(KERN_INFO "[cnn_write] DMA transaction finished\n");
-
+*/
 		break;
 		
 		/* Writing into DMA */
@@ -728,29 +756,32 @@ static int cnn_mmap(struct file *f, struct vm_area_struct *vma_s)
 		printk(KERN_ERR "[cnn_dma_mmap] Memory map failed\n");
 		return ret;
 	}
-	
 	return 0;
 }
 
 
+/* -------------------------------------- */
 /* -------------------------------------- */
 /* ------INTERRUPT SERVICE ROUTINES------ */
 /* -------------------------------------- */
 
 static irqreturn_t dma_isr(int irq, void*dev_id)
 {
-	u32 IrqStatus;  
+	unsigned int IrqStatus;  
 	
+	IrqStatus = ioread32(dma_p->base_addr + MM2S_STATUS_REGISTER);
+	iowrite32(IrqStatus | 0x00005000, dma_p->base_addr + MM2S_STATUS_REGISTER);
 	/* DMA transaction has been complited and interrupt occures, both flags are cleared (both MM2S and S2MM) */
 	
 	/* Clearing MM2S flag */
 	
 	/* Read irq status from MM2S_DMASR register */
-	IrqStatus = ioread32(dma_p->base_addr + MM2S_STATUS_REGISTER);
-	
+
+	if(IrqStatus & 0x00001000) printk(KERN_INFO "[dma_isr] IOC - DMA Interrupt on Complete\n");	
+	if(IrqStatus & 0x00004000) printk(KERN_INFO "[dma_isr] Err_Irq - DMA Interrupt on Error\n");	
+
 	/* Clear irq status in MM2S_DMASR register */
 	/* Clearing is done by writing 1 on 13th bit in MM2S_DMASR (IOC_Irq) */
-	iowrite32(IrqStatus | 0x00007000, dma_p->base_addr + MM2S_STATUS_REGISTER);
 	
 	
 	/* Clearing S2MM flag */
@@ -760,10 +791,10 @@ static irqreturn_t dma_isr(int irq, void*dev_id)
 	
 	/* Clear irq status in MM2S_DMASR register */
 	/* Clearing is done by writing 1 on 13th bit in MM2S_DMASR (IOC_Irq) */
-	iowrite32(IrqStatus | 0x00007000, dma_p->base_addr + S2MM_STATUS_REGISTER);
+	iowrite32(IrqStatus | 0x00005000, dma_p->base_addr + S2MM_STATUS_REGISTER);
 	
 	/* Tell rest of the code that interrupt has happened */
-	transaction_over = 1;
+	transaction_over = 0;
 	
 	printk(KERN_INFO "[dma_isr] Finished DMA transaction! Interrupt handeled\n");
 
@@ -773,9 +804,9 @@ static irqreturn_t dma_isr(int irq, void*dev_id)
 
 static irqreturn_t cnn_isr(int irq, void*dev_id)
 {
-	ip_process_over = 1;
+	ip_process_over = 0;
 	
-	printk(KERN_INFO "[cnn_isr] IP finished operation. Interrupt handeled\n");
+	printk(KERN_INFO "[cnn_isr] IP finished operation. CNN Interrupt handeled\n");
 	return IRQ_HANDLED;
 }
 
@@ -793,26 +824,43 @@ int dma_init(void __iomem *base_address)
 	 *  - Allow interrupts by setting bits 12 and 14 (these interrupts will signal the CPU when the transaction is complited or an error has accured)
 	*/
 	
-	u32 MM2S_DMACR_reg;
-	u32 en_interrupt;
+	u32 MM2S_DMACR_reg = 0;
+	u32 en_interrupt = 0;
+	u32 temp = 0;
+	
+	// For debug purpose first we read status register
+	temp = ioread32(base_address + 4);
+	//printk(KERN_INFO "Initial state of STATUS reg is %u\n", temp);	
+
 
 	/* Writing to MM2S_DMACR register. Setting reset bit (3rd bit) */
-	iowrite32((u32)DMACR_RESET, base_address + MM2S_CONTROL_REGISTER);
+	iowrite32(DMACR_RESET, base_address + MM2S_CONTROL_REGISTER);
 
+	printk(KERN_INFO "[dma_init] Writing %d into %x", DMACR_RESET, base_address+MM2S_CONTROL_REGISTER);
+	temp = ioread32(base_address + 0);
+	printk(KERN_INFO "[debug - ioread] After reseting control reg is %u\ [should be 65538 probably]\n", temp);
+
+	
 	/* Reading from MM2S_DMACR register inside DMA */
 	MM2S_DMACR_reg = ioread32(base_address + MM2S_CONTROL_REGISTER); 
+	printk(KERN_INFO "[debug - ioread] Reading control reg is %u [probably should be still 65538]\n", MM2S_DMACR_reg);
 	
+
 	/* Setting 13th and 15th bit in MM2S_DMACR to enable interrupts */
 	en_interrupt = MM2S_DMACR_reg | IOC_IRQ_FLAG | ERR_IRQ_EN;
+	printk(KERN_INFO "[debug] int flag is %u\n", en_interrupt);
+
 	iowrite32(en_interrupt, base_address + MM2S_CONTROL_REGISTER);
-	
+	printk(KERN_INFO "[dma_init] To enable interrupt and error check, writing %d into %x", en_interrupt, base_address+MM2S_CONTROL_REGISTER);
+	temp = ioread32(base_address + 0);
+	printk(KERN_INFO "[debug - iowrite/ioread] After enabling interrupt and error check, control reg is %u [should be 86018]\n", temp);
 	
 	/* Same steps should be taken for S2MM_DMACR register */
 	
 	u32 S2MM_DMACR_reg;
 
 	/* Writing to S2MM_DMACR register. Setting reset bit (3rd bit) */
-	iowrite32((u32)DMACR_RESET, base_address + S2MM_CONTROL_REGISTER);
+	iowrite32(DMACR_RESET, base_address + S2MM_CONTROL_REGISTER);
 
 	/* Reading from S2MM_DMACR register inside DMA */
 	S2MM_DMACR_reg = ioread32(base_address + S2MM_CONTROL_REGISTER); 
@@ -820,32 +868,69 @@ int dma_init(void __iomem *base_address)
 	/* Setting 13th and 15th bit in S2MM_DMACR to enable interrupts */
 	en_interrupt = S2MM_DMACR_reg | IOC_IRQ_FLAG | ERR_IRQ_EN;
 	iowrite32(en_interrupt, base_address + S2MM_CONTROL_REGISTER);
-	
+
+	printk(KERN_INFO "[dma_init] DMA init done\n");
 	return 0;
 }
 
-u32 dma_simple_write(dma_addr_t TxBufferPtr, u32 pkt_len, void __iomem *base_address) 
+unsigned int dma_simple_write(dma_addr_t TxBufferPtr, unsigned int pkt_len, void __iomem *base_address) 
 {
-	u32 MM2S_DMACR_reg;
+	u32 MM2S_DMACR_reg = 0;
+	u32 temp = 0;
+	u32 en_interrupt;	
+	
+	MM2S_DMACR_reg = ioread32(base_address + MM2S_CONTROL_REGISTER); 
+	
+	en_interrupt = MM2S_DMACR_reg | IOC_IRQ_FLAG | ERR_IRQ_EN;
+	// printk(KERN_INFO "[debug] int flag is %u\n", en_interrupt);
+	
+	iowrite32(en_interrupt, base_address + MM2S_CONTROL_REGISTER);
+	// printk(KERN_INFO "[dma_init] To enable interrupt and error check, writing %d into %x", en_interrupt, base_address+MM2S_CONTROL_REGISTER);
+
 
 	/* READ from MM2S_DMACR register */
-	MM2S_DMACR_reg = ioread32(base_address + MM2S_CONTROL_REGISTER);
+	MM2S_DMACR_reg = ioread32(base_address + MM2S_CONTROL_REGISTER);	
+
+	// printk(KERN_INFO "[debug - ioread] Initial control register before any changes inside dma_simple_write: %u [should be 86018]\n", MM2S_DMACR_reg);
+
+
+	temp = ioread32(base_address + 4);
+	// printk(KERN_INFO "[debug] Before starting DMA, STATUS reg LSB bit is %u [should be 1 - halted]\n", temp & 0x1);
+
 
 	/* Set RS bit in MM2S_DMACR register (this bit starts the DMA) */
 	iowrite32(0x1 |  MM2S_DMACR_reg, base_address + MM2S_CONTROL_REGISTER);
+	
+	// printk(KERN_INFO "[dma_simple_write] Writing %d at address %x\n", 0x1 | MM2S_DMACR_reg, base_address + MM2S_CONTROL_REGISTER);
+	temp = ioread32(base_address + 0);
+	// printk(KERN_INFO "[debug - iowrite/ioread] After starting RS bit, control register is %u [should be 68019]\n", temp);
+
+
+	temp = ioread32(base_address + 4);
+	// printk(KERN_INFO "[debug] After starting DMA, STATUS reg LSB bit is %u [should be 0 - running]\n", temp & 0x1);
+
 
 	/* Write into MM2S_SA register the value of TxBufferPtr. 
 	 * With this, the DMA knows from where to start - this is the first address of data that needs to be transfered. 
 	*/
-	iowrite32((u32)TxBufferPtr, base_address + MM2S_CONTROL_REGISTER + MM2S_SRC_ADDRESS_REGISTER); 
+	iowrite32((u32)TxBufferPtr, base_address + MM2S_CONTROL_REGISTER + MM2S_SRC_ADDRESS_REGISTER);
+
+	// printk(KERN_INFO "[dma_simple_write] Writing starting buffer address %x at address %x\n", (int)TxBufferPtr, base_address + MM2S_CONTROL_REGISTER + MM2S_SRC_ADDRESS_REGISTER);
+	temp = ioread32(base_address + 0x18);
+	// printk(KERN_INFO "[debug - iowrite/ioread] After writing starting address: %u [should be value from previous message]\n", temp);
+	
+
 
 	/* Write into MM2S_LENGTH register. This is the length of a tranaction. */
 	iowrite32(pkt_len, base_address + MM2S_CONTROL_REGISTER + MM2S_TRNSFR_LENGTH_REGISTER);
+	// printk(KERN_INFO "[dma_simple_write] Writing length of transaction %d at address %x\n", pkt_len, base_address + MM2S_CONTROL_REGISTER + MM2S_TRNSFR_LENGTH_REGISTER);
+	temp = ioread32(base_address + 0x28);
+	// printk(KERN_INFO "[debug - iowrite/ioread] After writing length: %u [should be 128 for bias]\n", temp);
 	return 0;
 }
 
 
-u32 dma_simple_read(dma_addr_t TxBufferPtr, u32 pkt_len, void __iomem *base_address) 
+unsigned int dma_simple_read(dma_addr_t TxBufferPtr, unsigned int pkt_len, void __iomem *base_address) 
 {
 	u32 S2MM_DMACR_reg;
 

@@ -18,8 +18,12 @@
 #include "bias.hpp"
 #include "picture.hpp"
 #include "weights0.hpp"
-#include "weights1.hpp"
-#include "weights2.hpp"
+#include "weights1_0.hpp"
+#include "weights1_1.hpp"
+#include "weights2_0.hpp"
+#include "weights2_1.hpp"
+#include "weights2_2.hpp"
+#include "weights2_3.hpp"
 
 #define IP_COMMAND_LOAD_BIAS			0x0001
 #define IP_COMMAND_LOAD_WEIGHTS0		0x0002

@@ -20,17 +20,17 @@
 #include "../../specification/cpp_implementation/denselayer.hpp"
 #include "../../vp/TLM/addresses.hpp"
 
-#define IP_COMMAND_LOAD_BIAS				0x0001
-#define IP_COMMAND_LOAD_WEIGHTS0			0x0002
-#define IP_COMMAND_LOAD_CONV0_INPUT			0x0004
-#define IP_COMMAND_START_CONV0				0x0008
-#define IP_COMMAND_LOAD_WEIGHTS1			0x0010
-#define IP_COMMAND_LOAD_CONV1_INPUT			0x0020
-#define IP_COMMAND_START_CONV1				0x0040
-#define IP_COMMAND_LOAD_WEIGHTS2			0x0080
-#define IP_COMMAND_LOAD_CONV2_INPUT			0x0100
-#define IP_COMMAND_START_CONV2				0x0200
-#define IP_COMMAND_RESET					0x0400
+#define IP_COMMAND_LOAD_BIAS			0x0001
+#define IP_COMMAND_LOAD_WEIGHTS0		0x0002
+#define IP_COMMAND_LOAD_CONV0_INPUT		0x0004
+#define IP_COMMAND_START_CONV0			0x0008
+#define IP_COMMAND_LOAD_WEIGHTS1		0x0010
+#define IP_COMMAND_LOAD_CONV1_INPUT		0x0020
+#define IP_COMMAND_START_CONV1			0x0040
+#define IP_COMMAND_LOAD_WEIGHTS2		0x0080
+#define IP_COMMAND_LOAD_CONV2_INPUT		0x0100
+#define IP_COMMAND_START_CONV2			0x0200
+#define IP_COMMAND_RESET			0x0400
 #define IP_COMMAND_READ_CONV0_OUTPUT		0x0800
 #define IP_COMMAND_READ_CONV1_OUTPUT		0x1000
 #define IP_COMMAND_READ_CONV2_OUTPUT		0x2000
@@ -97,8 +97,8 @@ int main()
 	maxpool[0] = new MaxPoolLayer(2);
 	maxpool[1] = new MaxPoolLayer(2);
 	maxpool[2] = new MaxPoolLayer(2);
-	dense_layer[0] = new DenseLayer(1024, 512, 0);
-	dense_layer[1] = new DenseLayer(512, 10, 1);
+	dense_layer[0] = new DenseLayer(1024,512,0);
+	dense_layer[1] = new DenseLayer(512,10,1);
 	dense_layer[0]->load_dense_layer("../../data/parametars/dense1/dense1_weights.txt", "../../data/parametars/dense1/dense1_bias.txt");
 	dense_layer[1]->load_dense_layer("../../data/parametars/dense2/dense2_weights.txt", "../../data/parametars/dense2/dense2_bias.txt");
 	
@@ -147,7 +147,7 @@ int main()
 	
 	cout << "[app] Starting classification..." << endl;
 	
-	input_picture = fopen("../../data/pictures.txt", "r");
+	input_picture = fopen("../../../CNN_sysC_cpp/slike.txt", "r");
 	
 	for(int picture = 0; picture < num_of_pictures; picture++)
 	{
@@ -658,23 +658,30 @@ int main()
 		duration = duration_cast<milliseconds>(stop_conv0 - start_conv0);
 		cout << "CONV0 took " << duration.count() << "ms" << endl;
 	
+
 		duration = duration_cast<milliseconds>(stop_maxpool0 - stop_conv0);
 		cout << "Maxpool0 took " << duration.count() << "ms" << endl;
+
 		
 		duration = duration_cast<milliseconds>(stop_conv1 - start_conv0);
 		cout << "CONV1 took " << duration.count() << "ms" << endl;
+	
 
 		duration = duration_cast<milliseconds>(stop_maxpool1 - stop_conv1);
 		cout << "Maxpool1 took " << duration.count() << "ms" << endl;
-	
+
+		
 		duration = duration_cast<milliseconds>(stop_conv2 - start_conv2);
 		cout << "CONV2 took " << duration.count() << "ms" << endl;
+	
 
 		duration = duration_cast<milliseconds>(stop_maxpool2 - stop_conv2);
 		cout << "Maxpool2 took " << duration.count() << "ms" << endl;
 
+
 		duration = duration_cast<milliseconds>(stop_flatten - stop_maxpool2);
 		cout << "Flatten took " << duration.count() << "ms" << endl;
+
 
 		duration = duration_cast<milliseconds>(stop_dense1 - stop_flatten);
 		cout << "Dense1 took " << duration.count() << "ms" << endl;
@@ -682,7 +689,7 @@ int main()
 		duration = duration_cast<milliseconds>(stop - stop_dense1);
 		cout << "Dense2 took " << duration.count() << "ms" << endl;
 
-		if (labels[picture] == 2 ||
+		if(labels[picture] == 2 ||
 			labels[picture] == 3 ||
 			labels[picture] == 4 ||
 			labels[picture] == 5 ||
@@ -706,7 +713,6 @@ int main()
 			}
 		}
 	}
-	
 	fclose(input_picture);
 	
 	cout << endl << endl << "[app] Number of hits: " << hit_count << endl;

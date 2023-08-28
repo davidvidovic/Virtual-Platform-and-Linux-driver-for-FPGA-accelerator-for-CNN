@@ -56,17 +56,17 @@ MODULE_DESCRIPTION("CNN IP core driver");
 #define MAX_PKT_LEN			CONV0_PICTURE_OUTPUT_LEN
 
 
-#define IP_COMMAND_LOAD_BIAS			0x0001
-#define IP_COMMAND_LOAD_WEIGHTS0		0x0002
-#define IP_COMMAND_LOAD_CONV0_INPUT		0x0004
-#define IP_COMMAND_START_CONV0			0x0008
-#define IP_COMMAND_LOAD_WEIGHTS1		0x0010
-#define IP_COMMAND_LOAD_CONV1_INPUT		0x0020
-#define IP_COMMAND_START_CONV1			0x0040
-#define IP_COMMAND_LOAD_WEIGHTS2		0x0080
-#define IP_COMMAND_LOAD_CONV2_INPUT		0x0100
-#define IP_COMMAND_START_CONV2			0x0200
-#define IP_COMMAND_RESET				0x0400
+#define IP_COMMAND_LOAD_BIAS		0x0001
+#define IP_COMMAND_LOAD_WEIGHTS0	0x0002
+#define IP_COMMAND_LOAD_CONV0_INPUT	0x0004
+#define IP_COMMAND_START_CONV0		0x0008
+#define IP_COMMAND_LOAD_WEIGHTS1	0x0010
+#define IP_COMMAND_LOAD_CONV1_INPUT	0x0020
+#define IP_COMMAND_START_CONV1		0x0040
+#define IP_COMMAND_LOAD_WEIGHTS2	0x0080
+#define IP_COMMAND_LOAD_CONV2_INPUT	0x0100
+#define IP_COMMAND_START_CONV2		0x0200
+#define IP_COMMAND_RESET		0x0400
 #define IP_COMMAND_READ_CONV0_OUTPUT	0x0800
 #define IP_COMMAND_READ_CONV1_OUTPUT	0x1000
 #define IP_COMMAND_READ_CONV2_OUTPUT	0x2000
@@ -82,13 +82,13 @@ MODULE_DESCRIPTION("CNN IP core driver");
 #define MM2S_TRNSFR_LENGTH_REGISTER 	0x28
 
 #define S2MM_CONTROL_REGISTER       	0x30
-#define S2MM_STATUS_REGISTER       		0x34
+#define S2MM_STATUS_REGISTER       	0x34
 #define S2MM_DST_ADDRESS_REGISTER   	0x48
 #define S2MM_BUFF_LENGTH_REGISTER   	0x58
 
-#define DMACR_RESET						0x04
-#define IOC_IRQ_FLAG					1 << 12
-#define ERR_IRQ_EN						1 << 14
+#define DMACR_RESET			0x04
+#define IOC_IRQ_FLAG			1 << 12
+#define ERR_IRQ_EN			1 << 14
 
 
 /* -------------------------------------- */
@@ -612,17 +612,17 @@ ssize_t cnn_write(struct file *pfile, const char __user *buf, size_t length, lof
 			
 			/* Check if command is valid */
 	
-			if(input_command != IP_COMMAND_LOAD_BIAS 			&&
+			if(input_command != IP_COMMAND_LOAD_BIAS 		&&
 			   input_command != IP_COMMAND_LOAD_WEIGHTS0 		&&
 			   input_command != IP_COMMAND_LOAD_CONV0_INPUT 	&&
-			   input_command != IP_COMMAND_START_CONV0			&&
+			   input_command != IP_COMMAND_START_CONV0		&&
 			   input_command != IP_COMMAND_LOAD_WEIGHTS1 		&&
 			   input_command != IP_COMMAND_LOAD_CONV1_INPUT 	&&
-			   input_command != IP_COMMAND_START_CONV1			&&
+			   input_command != IP_COMMAND_START_CONV1		&&
 			   input_command != IP_COMMAND_LOAD_WEIGHTS2 		&&
 			   input_command != IP_COMMAND_LOAD_CONV2_INPUT 	&&
-			   input_command != IP_COMMAND_START_CONV2			&&
-			   input_command != IP_COMMAND_RESET	 			&&
+			   input_command != IP_COMMAND_START_CONV2		&&
+			   input_command != IP_COMMAND_RESET	 		&&
 			   input_command != IP_COMMAND_READ_CONV0_OUTPUT	&&
 			   input_command != IP_COMMAND_READ_CONV1_OUTPUT	&&
 			   input_command != IP_COMMAND_READ_CONV2_OUTPUT)
@@ -701,7 +701,6 @@ ssize_t cnn_write(struct file *pfile, const char __user *buf, size_t length, lof
 				// NOT A LOAD OR READ COMMAND
 			break;
 			}
-			
 			if(input_command != IP_COMMAND_RESET)
 			{
 				printk(KERN_INFO "[cnn_write] Waiting for IP to send interrupt signal\n");
